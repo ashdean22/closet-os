@@ -27,7 +27,6 @@ export type DetailItem = {
   season: string | null;
   material: string | null;
   description: string | null;
-  last_worn: string | null;
 };
 
 type Props = {
@@ -51,11 +50,8 @@ export default function ItemDetailModal({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Sync local state when a new item is opened.
-  // BUG 2 FIX: also reset `deleting` here. The Modal stays mounted when
-  // hidden (visible=false), so state from a previous delete persists.
-  // Without this reset, the Delete button renders as disabled ("Deleting…")
-  // on every subsequent item opened after a successful delete.
+  // Sync local state when a new item is opened. Also resets `deleting` so the
+  // Delete button is never stuck in a "Deleting…" state after the modal reopens.
   useEffect(() => {
     if (item) {
       setDraftDescription(item.description ?? "");
@@ -105,10 +101,6 @@ export default function ItemDetailModal({
 
   const confirmDelete = async () => {
     setDeleting(true);
-    // BUG 2 FIX: use try/finally so `deleting` always resets to false,
-    // even on the success path. Previously the success branch called
-    // onClose() and returned without resetting, leaving deleting=true
-    // permanently in the still-mounted (but hidden) component.
     try {
       // 1. Remove image from Storage (non-fatal if already gone)
       if (item.image_url) {
@@ -135,7 +127,6 @@ export default function ItemDetailModal({
       onDeleted(item.id);
       onClose();
     } finally {
-      // Runs after both success and error so the button never stays stuck.
       setDeleting(false);
     }
   };
@@ -149,11 +140,6 @@ export default function ItemDetailModal({
       presentationStyle={Platform.OS === "ios" ? "pageSheet" : "fullScreen"}
       onRequestClose={onClose}
     >
-      {/*
-       * BUG 1 FIX: KeyboardAvoidingView pushes the ScrollView up by the
-       * keyboard height when the description TextInput is focused.
-       * behavior="padding" is correct for iOS modals; "height" for Android.
-       */}
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1, backgroundColor: "white" }}
@@ -165,10 +151,6 @@ export default function ItemDetailModal({
           </View>
         )}
 
-        {/*
-         * keyboardShouldPersistTaps="handled" lets touches on buttons
-         * (Save / Cancel) register even while the keyboard is open.
-         */}
         <ScrollView
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -272,18 +254,6 @@ export default function ItemDetailModal({
                 </Text>
               )}
             </View>
-
-            {/* ── Worn info ─────────────────────────────────────────────────── */}
-            {item.last_worn && (
-              <Text className="text-gray-400 text-xs">
-                Last worn:{" "}
-                {new Date(item.last_worn).toLocaleDateString(undefined, {
-                  month: "long",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-              </Text>
-            )}
 
             {/* ── Delete ───────────────────────────────────────────────────── */}
             <TouchableOpacity
