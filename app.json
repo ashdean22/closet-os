@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Closet OS",
+    "name": "Capsule",
     "slug": "closet-os",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -10,19 +10,19 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Closet OS uses your camera to photograph clothing items to add them to your wardrobe.",
-          "photosPermission": "Closet OS accesses your photo library so you can add existing photos of clothing items.",
-          "savePhotosPermission": "Closet OS saves clothing photos to your photo library."
+          "cameraPermission": "Capsule uses your camera to photograph clothing items to add them to your wardrobe.",
+          "photosPermission": "Capsule accesses your photo library so you can add existing photos of clothing items.",
+          "savePhotosPermission": "Capsule saves clothing photos to your photo library."
         }
       ]
     ],
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "3",
+      "buildNumber": "4",
       "infoPlist": {
-        "NSCameraUsageDescription": "Closet OS uses your camera to photograph clothing items to add them to your wardrobe.",
-        "NSPhotoLibraryUsageDescription": "Closet OS accesses your photo library so you can add existing photos of clothing items.",
-        "NSPhotoLibraryAddUsageDescription": "Closet OS saves clothing photos to your photo library.",
+        "NSCameraUsageDescription": "Capsule uses your camera to photograph clothing items to add them to your wardrobe.",
+        "NSPhotoLibraryUsageDescription": "Capsule accesses your photo library so you can add existing photos of clothing items.",
+        "NSPhotoLibraryAddUsageDescription": "Capsule saves clothing photos to your photo library.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.gabe822.closetos"

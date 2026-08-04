@@ -149,7 +149,7 @@ export default function AuthScreen() {
         >
           {/* Brand */}
           <View className="items-center mb-10">
-            <Text className="text-4xl font-bold text-indigo-600">Closet OS</Text>
+            <Text className="text-4xl font-bold text-indigo-600">Capsule</Text>
             <Text className="text-gray-400 text-sm mt-1">
               Your AI-powered wardrobe
             </Text>
