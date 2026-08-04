@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -12,7 +12,9 @@ import {
   Keyboard,
 } from "react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
+import ErrorBoundary from "../components/ErrorBoundary";
 import { supabase } from "../lib/supabase";
+import { readFunctionError } from "../lib/functionErrors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -31,7 +33,7 @@ type OutfitPiece = {
   item_id: string;
   role: string;
   reason: string;
-  item: ItemDetail;
+  item: ItemDetail | null;
 };
 
 type OutfitResult = {
@@ -49,6 +51,15 @@ export default function OutfitScreen() {
   const [result, setResult] = useState<OutfitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<TextInput>(null);
+  // Guards against setState after unmount (suspect #3). The screen normally
+  // stays mounted across tab switches, but this keeps the async path safe.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const handleFind = async () => {
     if (!query.trim()) return;
@@ -58,23 +69,53 @@ export default function OutfitScreen() {
     setError(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke<OutfitResult>(
+      const { data, error: fnError } = await supabase.functions.invoke<unknown>(
         "find-outfit",
         { body: { query: query.trim() } },
       );
 
-      if (fnError) throw fnError;
+      if (fnError) {
+        // Unwrap the real status + reason from the response body — the raw
+        // error is just "non-2xx status code". daily_limit (429) gets its own
+        // honest message instead of a generic failure.
+        const detail = await readFunctionError(fnError);
+        console.error(
+          "[find-outfit] failed:",
+          detail.status ?? "(no status)",
+          detail.reason ?? "(no reason)",
+          detail.message,
+        );
+        if (detail.reason === "daily_limit") {
+          throw new Error("daily_limit");
+        }
+        throw new Error(detail.message);
+      }
       if (!data) throw new Error("find-outfit returned no data");
-      setResult(data);
+
+      // The function can return HTTP 200 with an error body or a drifted shape;
+      // invoke() only routes non-2xx to `fnError`, so we validate here. This is
+      // the primary defense — a malformed body becomes a friendly error state
+      // instead of a render crash (TypeError on .length/.map).
+      const normalized = normalizeOutfitResult(data);
+      if (!normalized) {
+        const serverError =
+          typeof data === "object" && data !== null && "error" in data
+            ? String((data as { error: unknown }).error)
+            : "Unexpected response from the server.";
+        throw new Error(serverError);
+      }
+
+      if (mounted.current) setResult(normalized);
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
-      setError(friendlyOutfitError(raw));
+      if (mounted.current) setError(friendlyOutfitError(raw));
     } finally {
-      setLoading(false);
+      if (mounted.current) setLoading(false);
     }
   };
 
   return (
+    <ErrorBoundary label="Outfit">
     <ScreenWrapper>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -178,12 +219,19 @@ export default function OutfitScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
     </ScreenWrapper>
+    </ErrorBoundary>
   );
 }
 
 // ── OutfitResults ─────────────────────────────────────────────────────────────
 
 function OutfitResults({ result }: { result: OutfitResult }) {
+  // Defensive defaults: even though normalizeOutfitResult guarantees arrays,
+  // guard again here so a future shape change can never throw during render.
+  const outfit = Array.isArray(result.outfit) ? result.outfit : [];
+  const missing = Array.isArray(result.missing) ? result.missing : [];
+  const rationale = result.rationale ?? "Here's a look from your closet.";
+
   return (
     <View className="gap-4">
       {/* Rationale banner */}
@@ -191,46 +239,50 @@ function OutfitResults({ result }: { result: OutfitResult }) {
         <Text className="text-indigo-500 text-xs font-semibold uppercase tracking-wide mb-1">
           Styled for
         </Text>
-        <Text className="text-indigo-900 text-sm font-medium italic leading-5">
-          "{result.query}"
-        </Text>
+        {result.query ? (
+          <Text className="text-indigo-900 text-sm font-medium italic leading-5">
+            "{result.query}"
+          </Text>
+        ) : null}
         <Text className="text-indigo-800 text-sm leading-5 mt-2">
-          {result.rationale}
+          {rationale}
         </Text>
       </View>
 
       {/* Outfit pieces */}
-      {result.outfit.length === 0 ? (
+      {outfit.length === 0 ? (
         <View className="bg-amber-50 border border-amber-200 rounded-xl p-4 gap-1">
           <Text className="text-amber-800 text-sm font-semibold">
-            {closetIsEmpty(result.rationale)
+            {closetIsEmpty(rationale)
               ? "Your closet is empty"
               : "No matching items found"}
           </Text>
           <Text className="text-amber-700 text-sm leading-5">
-            {closetIsEmpty(result.rationale)
+            {closetIsEmpty(rationale)
               ? "Add and save some items first — the AI needs photos to work with."
               : "Try rephrasing your query, or add more variety to your closet."}
           </Text>
         </View>
       ) : (
         <View className="gap-3">
-          {result.outfit.map((piece) => (
-            <OutfitCard key={piece.item_id} piece={piece} />
+          {outfit.map((piece, i) => (
+            <OutfitCard key={piece?.item_id ?? i} piece={piece} />
           ))}
         </View>
       )}
 
       {/* Missing items */}
-      {result.missing.length > 0 && (
+      {missing.length > 0 && (
         <View className="bg-amber-50 border border-amber-200 rounded-2xl p-4 gap-2">
           <Text className="text-amber-700 text-xs font-semibold uppercase tracking-wide">
             Missing from your closet
           </Text>
-          {result.missing.map((m, i) => (
+          {missing.map((m, i) => (
             <View key={i} className="flex-row items-center gap-2">
               <Text className="text-amber-500">•</Text>
-              <Text className="text-amber-800 text-sm capitalize">{m}</Text>
+              <Text className="text-amber-800 text-sm capitalize">
+                {String(m ?? "")}
+              </Text>
             </View>
           ))}
         </View>
@@ -242,7 +294,10 @@ function OutfitResults({ result }: { result: OutfitResult }) {
 // ── OutfitCard ────────────────────────────────────────────────────────────────
 
 function OutfitCard({ piece }: { piece: OutfitPiece }) {
-  const { item, role, reason } = piece;
+  // piece itself may be malformed if the response shape drifts; default it.
+  const item = piece?.item;
+  const role = piece?.role ?? "item";
+  const reason = piece?.reason ?? "";
   const { bg, text } = rolePillStyle(role);
 
   return (
@@ -291,8 +346,40 @@ function OutfitCard({ piece }: { piece: OutfitPiece }) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Validates and normalizes an unknown response body into an OutfitResult.
+ * Returns null when the body can't plausibly be an outfit result (e.g. an
+ * `{ error }` body returned with HTTP 200, or a drifted shape). A null return
+ * tells the caller to show a friendly error rather than crash on render.
+ */
+function normalizeOutfitResult(data: unknown): OutfitResult | null {
+  if (typeof data !== "object" || data === null) return null;
+  const d = data as Record<string, unknown>;
+
+  // An error body with no outfit array is not a valid result.
+  if (!Array.isArray(d.outfit)) return null;
+
+  const outfit: OutfitPiece[] = (d.outfit as unknown[])
+    .filter((p): p is Record<string, unknown> => typeof p === "object" && p !== null)
+    .map((p) => ({
+      item_id: typeof p.item_id === "string" ? p.item_id : "",
+      role: typeof p.role === "string" ? p.role : "item",
+      reason: typeof p.reason === "string" ? p.reason : "",
+      item: (p.item ?? null) as OutfitPiece["item"],
+    }));
+
+  return {
+    query: typeof d.query === "string" ? d.query : "",
+    outfit,
+    rationale: typeof d.rationale === "string" ? d.rationale : "",
+    missing: Array.isArray(d.missing) ? (d.missing as string[]) : [],
+  };
+}
+
 /** Maps raw error strings to user-readable messages. */
 function friendlyOutfitError(raw: string): string {
+  if (raw === "daily_limit")
+    return "You've hit today's outfit limit — it resets tomorrow.";
   if (/network|fetch|failed to fetch|offline|internet/i.test(raw))
     return "Can't reach the server. Check your connection and try again.";
   if (/no embedded items|add some pieces/i.test(raw))
