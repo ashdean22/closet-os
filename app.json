@@ -1,17 +1,31 @@
 {
   "expo": {
-    "name": "closet-os",
+    "name": "Closet OS",
     "slug": "closet-os",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Closet OS uses your camera to photograph clothing items to add them to your wardrobe.",
+          "photosPermission": "Closet OS accesses your photo library so you can add existing photos of clothing items.",
+          "savePhotosPermission": "Closet OS saves clothing photos to your photo library."
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true,
+      "buildNumber": "3",
       "infoPlist": {
-        "NSCameraUsageDescription": "Used to photograph clothing items for your closet.",
-        "NSPhotoLibraryUsageDescription": "Used to select clothing photos from your library."
-      }
+        "NSCameraUsageDescription": "Closet OS uses your camera to photograph clothing items to add them to your wardrobe.",
+        "NSPhotoLibraryUsageDescription": "Closet OS accesses your photo library so you can add existing photos of clothing items.",
+        "NSPhotoLibraryAddUsageDescription": "Closet OS saves clothing photos to your photo library.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.gabe822.closetos"
     },
     "android": {
       "adaptiveIcon": {
