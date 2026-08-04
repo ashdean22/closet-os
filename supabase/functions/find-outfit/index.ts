@@ -1,6 +1,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { embedText } from "../_shared/gemini-embed.ts";
+import { checkDailyLimit, DAILY_OUTFIT_LIMIT } from "../_shared/usage.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -138,6 +139,12 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // ── Daily cost cap — checked before the Gemini embed and Claude calls ──
+    const usage = await checkDailyLimit(supabase, userId, "outfit", DAILY_OUTFIT_LIMIT);
+    if (!usage.ok) {
+      return json(usage.body, usage.status);
+    }
+
     // ── Step 1: embed the query ───────────────────────────────────────────
     // Uses the SAME model (gemini-embedding-001), outputDimensionality (768),
     // and L2-normalisation as embed-item via the shared helper.
@@ -169,7 +176,9 @@ Deno.serve(async (req: Request) => {
     const allowedIds = new Set(retrieved.map((i) => i.id));
 
     // ── Step 3: ask Claude to assemble the outfit ─────────────────────────
-    const anthropic = new Anthropic({ apiKey: anthropicKey });
+    // maxRetries: 0 — the SDK default of 2 automatic retries would multiply
+    // spend/latency on transient failures; the user retries manually instead.
+    const anthropic = new Anthropic({ apiKey: anthropicKey, maxRetries: 0 });
 
     const itemsForPrompt = retrieved.map((i) => ({
       id: i.id,
