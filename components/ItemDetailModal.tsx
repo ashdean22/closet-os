@@ -33,8 +33,36 @@ type Props = {
   item: DetailItem | null;
   onClose: () => void;
   onDeleted: (id: string) => void;
-  onDescriptionUpdated: (id: string, description: string) => void;
+  onItemUpdated: (id: string, patch: Partial<DetailItem>) => void;
 };
+
+// Enum values must match the tag-item tool schema exactly — edited values feed
+// the same search/styling pipeline as model-generated ones.
+const CATEGORIES = ["top", "bottom", "outerwear", "shoes", "accessory", "dress", "other"] as const;
+const FORMALITIES = ["casual", "smart-casual", "business", "formal", "athletic"] as const;
+const SEASONS = ["spring", "summer", "fall", "winter", "all-season"] as const;
+
+type Draft = {
+  category: string;
+  color: string;
+  secondary_color: string;
+  formality: string;
+  season: string;
+  material: string;
+  description: string;
+};
+
+function draftFromItem(item: DetailItem): Draft {
+  return {
+    category: item.category ?? "other",
+    color: item.color ?? "",
+    secondary_color: item.secondary_color ?? "",
+    formality: item.formality ?? "casual",
+    season: item.season ?? "all-season",
+    material: item.material ?? "",
+    description: item.description ?? "",
+  };
+}
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
 
@@ -42,19 +70,19 @@ export default function ItemDetailModal({
   item,
   onClose,
   onDeleted,
-  onDescriptionUpdated,
+  onItemUpdated,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const [draftDescription, setDraftDescription] = useState("");
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Sync local state when a new item is opened. Also resets `deleting` so the
+  // Reset edit state when a new item is opened. Also resets `deleting` so the
   // Delete button is never stuck in a "Deleting…" state after the modal reopens.
   useEffect(() => {
     if (item) {
-      setDraftDescription(item.description ?? "");
+      setDraft(null);
       setEditing(false);
       setDeleting(false);
     }
@@ -62,25 +90,58 @@ export default function ItemDetailModal({
 
   if (!item) return null;
 
-  // ── description save ───────────────────────────────────────────────────────
+  // ── tag editing ────────────────────────────────────────────────────────────
 
-  const handleSaveDescription = async () => {
+  const startEditing = () => {
+    setDraft(draftFromItem(item));
+    setEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setDraft(null);
+    setEditing(false);
+  };
+
+  const setField = (field: keyof Draft, value: string) =>
+    setDraft((d) => (d ? { ...d, [field]: value } : d));
+
+  const handleSaveTags = async () => {
+    if (!draft) return;
+    // User-corrected tags are ground truth for this item — they overwrite the
+    // model's output. NOTE: these corrections are intentionally kept as future
+    // fine-tuning training data (model tags vs. human-corrected tags).
+    const patch: Partial<DetailItem> = {
+      category: draft.category,
+      color: draft.color.trim(),
+      secondary_color: draft.secondary_color.trim(),
+      formality: draft.formality,
+      season: draft.season,
+      material: draft.material.trim(),
+      description: draft.description.trim(),
+    };
+
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from("items")
-        .update({ description: draftDescription.trim() })
-        .eq("id", item.id);
-
+      const { error } = await supabase.from("items").update(patch).eq("id", item.id);
       if (error) {
         Alert.alert("Save failed", error.message);
-      } else {
-        // NOTE: the embedding was generated from the OLD description. Updating
-        // the text here does NOT regenerate the vector. Re-embedding on
-        // description edit is a future improvement.
-        onDescriptionUpdated(item.id, draftDescription.trim());
-        setEditing(false);
+        return;
       }
+
+      // The stored vector was embedded from the old description; regenerate it
+      // so semantic search reflects the edit. Best-effort — search still works
+      // on the stale vector if this fails.
+      if (patch.description !== (item.description ?? "")) {
+        supabase.functions
+          .invoke("embed-item", { body: { item_id: item.id } })
+          .then(({ error: embedError }) => {
+            if (embedError) console.warn("[embed-item] re-embed:", embedError.message);
+          });
+      }
+
+      onItemUpdated(item.id, patch);
+      setEditing(false);
+      setDraft(null);
     } finally {
       setSaving(false);
     }
@@ -182,94 +243,235 @@ export default function ItemDetailModal({
           </View>
 
           <View className="px-5 pt-5 gap-5">
-            {/* ── Tags ─────────────────────────────────────────────────────── */}
-            <View className="gap-2">
-              <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                Tags
-              </Text>
-              <View className="flex-row flex-wrap gap-2">
-                {item.category        && <TagPill label={item.category}        hue="sky"     />}
-                {item.color           && <TagPill label={item.color}           hue="indigo"  />}
-                {item.secondary_color && <TagPill label={item.secondary_color} hue="violet"  />}
-                {item.formality       && <TagPill label={item.formality}       hue="amber"   />}
-                {item.season          && <TagPill label={item.season}          hue="emerald" />}
-                {item.material        && <TagPill label={item.material}        hue="rose"    />}
-              </View>
-            </View>
-
-            {/* ── Description ──────────────────────────────────────────────── */}
-            <View className="gap-2">
-              <View className="flex-row items-center justify-between">
-                <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                  Description
-                </Text>
-                {!editing && (
-                  <TouchableOpacity
-                    onPress={() => setEditing(true)}
-                    className="px-3 py-1 rounded-lg bg-gray-100"
-                  >
-                    <Text className="text-gray-600 text-xs font-medium">Edit</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {editing ? (
+            {editing && draft ? (
+              <TagEditor
+                draft={draft}
+                saving={saving}
+                onChange={setField}
+                onCancel={cancelEditing}
+                onSave={handleSaveTags}
+              />
+            ) : (
+              <>
+                {/* ── Tags (read-only) ─────────────────────────────────────── */}
                 <View className="gap-2">
-                  <TextInput
-                    value={draftDescription}
-                    onChangeText={setDraftDescription}
-                    multiline
-                    autoFocus
-                    scrollEnabled={false}
-                    className="border border-gray-200 rounded-xl p-3 text-gray-800 text-sm leading-5 bg-gray-50"
-                    style={{ minHeight: 80, textAlignVertical: "top" }}
-                  />
-                  <View className="flex-row gap-2">
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                      Tags
+                    </Text>
                     <TouchableOpacity
-                      onPress={() => {
-                        setDraftDescription(item.description ?? "");
-                        setEditing(false);
-                      }}
-                      className="flex-1 py-2.5 rounded-xl border border-gray-200 items-center"
+                      onPress={startEditing}
+                      className="px-3 py-1 rounded-lg bg-gray-100"
                     >
-                      <Text className="text-gray-500 text-sm font-medium">Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={handleSaveDescription}
-                      disabled={saving}
-                      className={`flex-1 py-2.5 rounded-xl items-center flex-row justify-center gap-1.5 ${
-                        saving ? "bg-indigo-300" : "bg-indigo-600"
-                      }`}
-                    >
-                      {saving && <ActivityIndicator size="small" color="white" />}
-                      <Text className="text-white text-sm font-semibold">Save</Text>
+                      <Text className="text-gray-600 text-xs font-medium">Edit tags</Text>
                     </TouchableOpacity>
                   </View>
+                  <View className="flex-row flex-wrap gap-2">
+                    {item.category        && <TagPill label={item.category}        hue="sky"     />}
+                    {item.color           && <TagPill label={item.color}           hue="indigo"  />}
+                    {item.secondary_color && <TagPill label={item.secondary_color} hue="violet"  />}
+                    {item.formality       && <TagPill label={item.formality}       hue="amber"   />}
+                    {item.season          && <TagPill label={item.season}          hue="emerald" />}
+                    {item.material        && <TagPill label={item.material}        hue="rose"    />}
+                  </View>
                 </View>
-              ) : (
-                <Text className="text-gray-700 text-sm leading-6">
-                  {item.description ?? (
-                    <Text className="text-gray-400 italic">No description</Text>
-                  )}
-                </Text>
-              )}
-            </View>
+
+                {/* ── Description ──────────────────────────────────────────── */}
+                <View className="gap-2">
+                  <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                    Description
+                  </Text>
+                  <Text className="text-gray-700 text-sm leading-6">
+                    {item.description ?? (
+                      <Text className="text-gray-400 italic">No description</Text>
+                    )}
+                  </Text>
+                </View>
+              </>
+            )}
 
             {/* ── Delete ───────────────────────────────────────────────────── */}
-            <TouchableOpacity
-              onPress={handleDelete}
-              disabled={deleting}
-              className="mt-2 py-4 rounded-xl border border-red-200 items-center flex-row justify-center gap-2"
-            >
-              {deleting && <ActivityIndicator size="small" color="#dc2626" />}
-              <Text className="text-red-600 text-base font-semibold">
-                {deleting ? "Deleting…" : "Delete from Closet"}
-              </Text>
-            </TouchableOpacity>
+            {!editing && (
+              <TouchableOpacity
+                onPress={handleDelete}
+                disabled={deleting}
+                className="mt-2 py-4 rounded-xl border border-red-200 items-center flex-row justify-center gap-2"
+              >
+                {deleting && <ActivityIndicator size="small" color="#dc2626" />}
+                <Text className="text-red-600 text-base font-semibold">
+                  {deleting ? "Deleting…" : "Delete from Closet"}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+// ── TagEditor ─────────────────────────────────────────────────────────────────
+
+function TagEditor({
+  draft,
+  saving,
+  onChange,
+  onCancel,
+  onSave,
+}: {
+  draft: Draft;
+  saving: boolean;
+  onChange: (field: keyof Draft, value: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <View className="gap-5">
+      <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+        Edit tags
+      </Text>
+
+      <EnumPicker
+        label="Category"
+        options={CATEGORIES}
+        value={draft.category}
+        onSelect={(v) => onChange("category", v)}
+      />
+      <EnumPicker
+        label="Formality"
+        options={FORMALITIES}
+        value={draft.formality}
+        onSelect={(v) => onChange("formality", v)}
+      />
+      <EnumPicker
+        label="Season"
+        options={SEASONS}
+        value={draft.season}
+        onSelect={(v) => onChange("season", v)}
+      />
+
+      <FieldInput
+        label="Color"
+        value={draft.color}
+        placeholder="e.g. navy blue"
+        onChangeText={(t) => onChange("color", t)}
+      />
+      <FieldInput
+        label="Secondary color (optional)"
+        value={draft.secondary_color}
+        placeholder="e.g. white stripes — leave empty if solid"
+        onChangeText={(t) => onChange("secondary_color", t)}
+      />
+      <FieldInput
+        label="Material"
+        value={draft.material}
+        placeholder="e.g. cotton, denim, leather"
+        onChangeText={(t) => onChange("material", t)}
+      />
+
+      <View className="gap-1.5">
+        <Text className="text-xs font-medium text-gray-500">Description</Text>
+        <TextInput
+          value={draft.description}
+          onChangeText={(t) => onChange("description", t)}
+          multiline
+          scrollEnabled={false}
+          className="border border-gray-200 rounded-xl p-3 text-gray-800 text-sm leading-5 bg-gray-50"
+          style={{ minHeight: 80, textAlignVertical: "top" }}
+        />
+        <Text className="text-gray-400 text-xs">
+          Used for outfit search — describe style, color, and occasion.
+        </Text>
+      </View>
+
+      <View className="flex-row gap-2">
+        <TouchableOpacity
+          onPress={onCancel}
+          disabled={saving}
+          className="flex-1 py-3 rounded-xl border border-gray-200 items-center"
+        >
+          <Text className="text-gray-500 text-sm font-medium">Cancel</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onSave}
+          disabled={saving}
+          className={`flex-1 py-3 rounded-xl items-center flex-row justify-center gap-1.5 ${
+            saving ? "bg-indigo-300" : "bg-indigo-600"
+          }`}
+        >
+          {saving && <ActivityIndicator size="small" color="white" />}
+          <Text className="text-white text-sm font-semibold">Save</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+function EnumPicker({
+  label,
+  options,
+  value,
+  onSelect,
+}: {
+  label: string;
+  options: readonly string[];
+  value: string;
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <View className="gap-1.5">
+      <Text className="text-xs font-medium text-gray-500">{label}</Text>
+      <View className="flex-row flex-wrap gap-2">
+        {options.map((opt) => {
+          const selected = opt === value;
+          return (
+            <TouchableOpacity
+              key={opt}
+              onPress={() => onSelect(opt)}
+              className={`px-3 py-1.5 rounded-full border ${
+                selected
+                  ? "bg-indigo-600 border-indigo-600"
+                  : "bg-white border-gray-200"
+              }`}
+            >
+              <Text
+                className={`text-xs font-medium capitalize ${
+                  selected ? "text-white" : "text-gray-600"
+                }`}
+              >
+                {opt}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function FieldInput({
+  label,
+  value,
+  placeholder,
+  onChangeText,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChangeText: (text: string) => void;
+}) {
+  return (
+    <View className="gap-1.5">
+      <Text className="text-xs font-medium text-gray-500">{label}</Text>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#9ca3af"
+        autoCapitalize="none"
+        className="border border-gray-200 rounded-xl px-3 py-2.5 text-gray-800 text-sm bg-gray-50"
+      />
+    </View>
   );
 }
 

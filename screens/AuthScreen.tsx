@@ -89,7 +89,12 @@ export default function AuthScreen() {
 
       // Map Supabase's terse messages to user-friendly strings.
       if (raw.includes("Invalid login credentials")) {
-        setError("Incorrect email or password.");
+        // Supabase intentionally returns the same error for a wrong password
+        // and a nonexistent account (no email enumeration), so the hint has to
+        // cover both without confirming whether the email is registered.
+        setError(
+          "We couldn't sign you in. Check your password — or if you're new here, tap Sign Up above to create an account.",
+        );
       } else if (raw.includes("User already registered")) {
         setError("An account with this email already exists — try signing in.");
       } else if (raw.includes("Password should be at least")) {
@@ -144,7 +149,7 @@ export default function AuthScreen() {
         >
           {/* Brand */}
           <View className="items-center mb-10">
-            <Text className="text-4xl font-bold text-indigo-600">closet‑os</Text>
+            <Text className="text-4xl font-bold text-indigo-600">Closet OS</Text>
             <Text className="text-gray-400 text-sm mt-1">
               Your AI-powered wardrobe
             </Text>

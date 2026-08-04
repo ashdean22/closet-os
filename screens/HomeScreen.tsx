@@ -11,6 +11,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../lib/supabase";
+import { readFunctionError, type FunctionErrorDetail } from "../lib/functionErrors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -53,7 +54,9 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
   const [tags, setTags] = useState<ItemTags | null>(null);
   const [saving, setSaving] = useState(false);
   const [duplicate, setDuplicate] = useState<DuplicateState | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  // reason is kept alongside the message so the render can react to specific
+  // failures (e.g. no_item shows the prominent scan tips).
+  const [saveError, setSaveError] = useState<{ message: string; reason: string | null } | null>(null);
 
   // ── pick helpers ─────────────────────────────────────────────────────────
 
@@ -64,7 +67,7 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       allowsEditing: true,
       quality: 0.8,
     });
@@ -83,7 +86,7 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       allowsEditing: true,
       quality: 0.8,
     });
@@ -129,8 +132,26 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
         "tag-item",
         { body: { image_url: publicUrl } },
       );
-      if (tagError) throw tagError;
-      if (!tagData) throw new Error("tag-item returned no data");
+      if (tagError || !tagData) {
+        // Read the REAL status + body the function returned. The raw tagError is
+        // just "Edge Function returned a non-2xx status code"; the cause lives in
+        // its .context Response. We log it and map its reason code to an honest
+        // message instead of blaming the photo.
+        const detail = await readFunctionError(tagError);
+        console.error(
+          "[tag-item] failed:",
+          detail.status ?? "(no status)",
+          detail.reason ?? "(no reason)",
+          detail.message,
+        );
+        // Tagging failed, so no item row will be created. Remove the photo we
+        // just uploaded so a rejected image (e.g. a blank wall) leaves nothing
+        // behind. Best-effort — a leftover orphan file is harmless.
+        await supabase.storage.from("wardrobe-items").remove([path]).catch(() => {});
+        setSaveError({ message: tagErrorMessage(detail), reason: detail.reason });
+        setSaving(false);
+        return;
+      }
 
       // 4. Insert the item row, getting back the generated id
       const { data: { session } } = await supabase.auth.getSession();
@@ -186,7 +207,7 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
       onNavigateToCloset();
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
-      setSaveError(friendlySaveError(raw));
+      setSaveError({ message: friendlySaveError(raw), reason: null });
     } finally {
       setSaving(false);
     }
@@ -255,11 +276,16 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
 
         {/* Inline save error */}
         {saveError && (
-          <View className="w-full bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-            <Text className="text-red-700 text-sm font-semibold mb-0.5">
-              Couldn't save item
-            </Text>
-            <Text className="text-red-600 text-sm leading-5">{saveError}</Text>
+          <View className="w-full gap-3">
+            <View className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <Text className="text-red-700 text-sm font-semibold mb-0.5">
+                Couldn't save item
+              </Text>
+              <Text className="text-red-600 text-sm leading-5">{saveError.message}</Text>
+            </View>
+            {/* Scan tips get top billing when the model couldn't find an item —
+                black text, larger type, so testers actually read them. */}
+            {saveError.reason === "no_item" && <ScanTips />}
           </View>
         )}
 
@@ -313,6 +339,29 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
         )}
       </ScrollView>
     </ScreenWrapper>
+  );
+}
+
+// ── ScanTips ──────────────────────────────────────────────────────────────────
+
+function ScanTips() {
+  return (
+    <View className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-4 gap-2">
+      <Text className="text-black text-base font-bold">
+        Tips for a better scan
+      </Text>
+      {[
+        "Lay the item flat or hang it against a plain background",
+        "Use bright, even lighting — daylight works best",
+        "Get the whole item in frame, filling most of the photo",
+        "Photograph one item at a time",
+      ].map((tip) => (
+        <View key={tip} className="flex-row gap-2">
+          <Text className="text-black text-base leading-6">•</Text>
+          <Text className="text-black text-base leading-6 flex-1">{tip}</Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -476,6 +525,42 @@ function Pill({ label, color }: { label: string; color: PillColor }) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Maps a tag-item failure to an honest user message. Only a genuine "no_item"
+ * (the model couldn't find/identify a clothing item, or was low-confidence)
+ * mentions lighting/framing — service and input failures say "try again".
+ */
+function tagErrorMessage(d: FunctionErrorDetail): string {
+  switch (d.reason) {
+    case "no_item":
+      return "We couldn't identify a clothing item in this photo. Try better lighting and get the full item in frame.";
+    case "image_too_large":
+      return "That photo is too large to analyze. Try a slightly lower-resolution photo.";
+    case "unsupported_format":
+      return "That image format isn't supported. Take a new photo (JPEG or PNG) and try again.";
+    case "image_rejected":
+      return "The photo couldn't be processed. Try a different photo.";
+    case "daily_limit":
+      return "You've hit today's limit — it resets tomorrow.";
+    case "rate_limited":
+    case "overloaded":
+      return "The tagging service is busy right now. Please wait a moment and try again.";
+    case "timeout":
+      return "Tagging timed out. Please try again.";
+    case "service_config":
+      return "Tagging is temporarily unavailable. Please try again later.";
+    case "fetch_failed":
+      return "We couldn't read the uploaded photo. Please try again.";
+    case "network":
+      return "Can't reach the tagging service. Check your connection and try again.";
+    case "parse_error":
+    case "unknown":
+    default:
+      return "Couldn't tag this photo. Please try again.";
+  }
+}
+
+/** Friendly message for non-tagging save failures (upload, insert, etc.). */
 function friendlySaveError(raw: string): string {
   if (/network|fetch|failed to fetch|offline|internet/i.test(raw))
     return "No internet connection. Check your network and try again.";
@@ -483,7 +568,5 @@ function friendlySaveError(raw: string): string {
     return "Photo upload failed. Check your connection and try again.";
   if (/unauthorized|401|jwt|token/i.test(raw))
     return "Your session expired — sign out and back in, then try again.";
-  if (/tag-item|tagging/i.test(raw))
-    return "Couldn't tag the photo. Make sure the item is clearly visible and retry.";
   return "Something went wrong saving this item. Please try again.";
 }

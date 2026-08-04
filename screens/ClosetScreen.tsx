@@ -61,11 +61,11 @@ export default function ClosetScreen({ refreshKey = 0 }: { refreshKey?: number }
 
   // ── modal callbacks ───────────────────────────────────────────────────────
 
-  const handleDescriptionUpdated = useCallback((id: string, description: string) => {
+  const handleItemUpdated = useCallback((id: string, patch: Partial<DetailItem>) => {
     setItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, description } : item)),
+      prev.map((item) => (item.id === id ? { ...item, ...patch } : item)),
     );
-    setSelectedItem((prev) => (prev?.id === id ? { ...prev, description } : prev));
+    setSelectedItem((prev) => (prev?.id === id ? { ...prev, ...patch } : prev));
   }, []);
 
   const handleDeleted = useCallback((id: string) => {
@@ -100,7 +100,7 @@ export default function ClosetScreen({ refreshKey = 0 }: { refreshKey?: number }
             tintColor="#4f46e5"
           />
         }
-        ListHeaderComponent={<ClosetHeader />}
+        ListHeaderComponent={<ClosetHeader count={items.length} />}
         ListEmptyComponent={
           <View className="items-center justify-center py-24">
             <Text className="text-5xl mb-4">👔</Text>
@@ -118,29 +118,24 @@ export default function ClosetScreen({ refreshKey = 0 }: { refreshKey?: number }
         item={selectedItem}
         onClose={() => setSelectedItem(null)}
         onDeleted={handleDeleted}
-        onDescriptionUpdated={handleDescriptionUpdated}
+        onItemUpdated={handleItemUpdated}
       />
     </ScreenWrapper>
   );
 }
 
 // ── ClosetHeader ──────────────────────────────────────────────────────────────
+// Log Out lives on the Settings tab now — this header is title-only.
 
-function ClosetHeader() {
-  const handleSignOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) Alert.alert("Sign out error", error.message);
-  };
-
+function ClosetHeader({ count }: { count: number }) {
   return (
-    <View className="flex-row items-center justify-between mb-4">
+    <View className="flex-row items-baseline justify-between mb-4">
       <Text className="text-2xl font-bold text-gray-800">My Closet</Text>
-      <TouchableOpacity
-        onPress={handleSignOut}
-        className="px-3 py-1.5 rounded-lg bg-gray-100"
-      >
-        <Text className="text-gray-500 text-xs font-medium">Log Out</Text>
-      </TouchableOpacity>
+      {count > 0 && (
+        <Text className="text-gray-400 text-sm">
+          {count} {count === 1 ? "item" : "items"}
+        </Text>
+      )}
     </View>
   );
 }
