@@ -17,22 +17,23 @@ full name. Same pattern as "Whering: Your Digital Closet".
 
 **Description:**
 
-> You already own more outfits than you think — you just can't see them. Most
-> of us wear the same few pieces on rotation, forget what's in the back of the
-> closet, and end up buying something nearly identical to what's already
-> hanging there.
+> I kept buying the same white polo. I own four. Not one of them felt like a
+> mistake at the time — I just couldn't picture what was already hanging in my
+> closet, so I stood in the store and guessed.
 >
-> Capsule fixes that. Photograph each piece once and it's automatically
-> tagged by color, category, material, formality, and season. Then just ask in
-> plain English — "something for a rainy casual Friday" — and get a complete
-> outfit assembled from your own clothes, with the reasoning behind every
-> piece. No generic style advice: every suggestion is something you actually
-> own.
+> Capsule does the remembering. Photograph each piece once and it gets tagged
+> on its own: color, category, fabric, formality, season. After that you ask
+> for what you need the way you'd say it out loud — "smart casual dinner,"
+> "something for a cold rainy Tuesday" — and get a full outfit built from
+> clothes you already own, with a line on why each piece made the cut. No mood
+> boards, no shopping links, nothing you have to buy first.
 >
-> And before you buy that next shirt, Capsule has your back. When you add a
-> new item, it checks your closet for near-identical pieces you already own
-> and warns you before the duplicate sneaks in. Your closet, finally
-> searchable — and your money staying in your pocket.
+> It also calls out repeats. Add something close enough to what's already in
+> there and Capsule puts the two side by side before it joins the pile.
+> Sometimes you genuinely do want the second white polo. At least now it's a
+> decision instead of an accident.
+>
+> Free, no ads, and your closet stays yours.
 
 **Keywords** (100 chars max, 94 used) — no repeats of words already in the
 name or subtitle, since those are indexed separately:
