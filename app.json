@@ -18,7 +18,7 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "buildNumber": "5",
+      "buildNumber": "6",
       "infoPlist": {
         "NSCameraUsageDescription": "Capsule uses your camera to photograph clothing items to add them to your wardrobe.",
         "NSPhotoLibraryUsageDescription": "Capsule accesses your photo library so you can add existing photos of clothing items.",
@@ -29,7 +29,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#4679B7",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
