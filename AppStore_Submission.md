@@ -17,21 +17,24 @@ full name. Same pattern as "Whering: Your Digital Closet".
 
 **Description:**
 
-> I kept buying the same white polo. I own four. Not one of them felt like a
-> mistake at the time — I just couldn't picture what was already hanging in my
-> closet, so I stood in the store and guessed.
+> The clothes you actually wear are a fraction of what you own. The rest isn't
+> bad — it's just out of sight, so it never makes the rotation, and "I have
+> nothing to wear" ends up being cheaper to solve by buying something than by
+> digging through the closet.
 >
-> Capsule does the remembering. Photograph each piece once and it gets tagged
-> on its own: color, category, fabric, formality, season. After that you ask
-> for what you need the way you'd say it out loud — "smart casual dinner,"
-> "something for a cold rainy Tuesday" — and get a full outfit built from
-> clothes you already own, with a line on why each piece made the cut. No mood
-> boards, no shopping links, nothing you have to buy first.
+> Capsule is for getting more out of what's already hanging there. Photograph
+> each piece once and it gets tagged on its own: color, category, fabric,
+> formality, season. Then ask for what you need the way you'd say it out loud
+> — "smart casual dinner," "something for a cold rainy Tuesday" — and get a
+> full outfit built only from clothes you own, with a line on why each piece
+> works. Often it's a pairing you wouldn't have reached for, out of something
+> you'd stopped seeing. No mood boards, no shopping links, nothing you have to
+> buy first.
 >
-> It also calls out repeats. Add something close enough to what's already in
-> there and Capsule puts the two side by side before it joins the pile.
-> Sometimes you genuinely do want the second white polo. At least now it's a
-> decision instead of an accident.
+> It'll also tell you when you're about to repeat yourself. Add a piece close
+> enough to something already in there and Capsule shows you both, side by
+> side, before it joins the pile — so if you keep it, that's a decision
+> instead of an accident.
 >
 > Free, no ads, and your closet stays yours.
 
@@ -93,6 +96,44 @@ Remaining:
 - [ ] Paste listing copy, privacy labels, review notes + demo credentials,
       category (Lifestyle) / price (Free)
 - [ ] Submit for review (1–3 day turnaround typical)
+
+## TestFlight "What to Test" — build 5
+
+Paste into TestFlight → Test Information. Testers see this verbatim.
+
+---
+
+The app is now called Capsule. This build adds account controls and makes the
+AI's tags editable. Things worth pushing on:
+
+**Settings (new tab)** — your email, log out, privacy policy, version, and
+Delete Account. Deletion is permanent and removes your account, items, and
+photos, so use a throwaway account if you want to try it.
+
+**Editable tags** — open any item and tap "Edit tags." Category, formality,
+and season are pickers; color, material, and description are free text. If the
+AI mislabelled something, correct it and tell me what it got wrong — those
+corrections are the most useful thing you can send me.
+
+**Photo rejection** — point it at something that isn't clothing: a wall, a
+desk, your floor. It should refuse and show framing tips rather than inventing
+tags. If it confidently tags something that isn't a garment, that's a bug and
+I want to hear about it.
+
+**Outfit quality** — ask for a few different occasions and weather. Are the
+picks sensible? Does the reasoning actually justify the choice, or does it
+read like it's rationalising a random pull?
+
+**Sign-in errors** — if you mistype a password, the message should be helpful
+rather than cryptic.
+
+There are daily limits of 30 tagged items and 20 outfit queries. Normal use
+shouldn't come close; let me know if you hit one.
+
+Most useful feedback: where it felt slow, where it felt wrong, and anything
+you expected it to do that it didn't.
+
+---
 
 ## Naming notes
 
