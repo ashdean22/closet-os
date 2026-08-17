@@ -34,28 +34,9 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   other: "Other",
 };
 
-// ── Seasons, surfaced as weather ──────────────────────────────────────────────
-// There is no weather field on `items` and no forecast data anywhere in the
-// app — `season` is the only signal we have. These labels are an honest
-// restatement of the season tag, not a claim about real conditions.
-
-export const SEASONS = [
-  "all-season",
-  "spring",
-  "summer",
-  "fall",
-  "winter",
-] as const;
-
-export type Season = (typeof SEASONS)[number];
-
-export const SEASON_LABELS: Record<Season, string> = {
-  "all-season": "Any weather",
-  spring: "Mild",
-  summer: "Hot",
-  fall: "Cool",
-  winter: "Cold",
-};
+// Note: items still carry a `season` tag, and the stylist uses it when
+// building outfits. It is simply not offered as a closet filter — browsing by
+// season proved less useful than by type or colour.
 
 // ── Formality ─────────────────────────────────────────────────────────────────
 
@@ -250,37 +231,29 @@ function rank(order: Map<string, number>, value: string | null): number {
 export type ClosetFilters = {
   categories: Category[];
   colors: ColorBucket[];
-  seasons: Season[];
 };
 
 export const EMPTY_FILTERS: ClosetFilters = {
   categories: [],
   colors: [],
-  seasons: [],
 };
 
 export function filtersAreEmpty(f: ClosetFilters): boolean {
-  return (
-    f.categories.length === 0 && f.colors.length === 0 && f.seasons.length === 0
-  );
+  return f.categories.length === 0 && f.colors.length === 0;
 }
 
 export function activeFilterCount(f: ClosetFilters): number {
-  return f.categories.length + f.colors.length + f.seasons.length;
+  return f.categories.length + f.colors.length;
 }
 
 type FilterableItem = {
   category: string | null;
   color: string | null;
-  season: string | null;
 };
 
 /**
  * Groups are ANDed, values within a group are ORed — the behaviour people
  * expect from faceted filters ("tops OR shoes, that are ALSO black").
- *
- * "all-season" items match every weather filter: a piece tagged for any
- * weather should not disappear when you narrow to cold.
  */
 export function filterItems<T extends FilterableItem>(
   items: T[],
@@ -295,13 +268,6 @@ export function filterItems<T extends FilterableItem>(
     }
     if (f.colors.length > 0) {
       if (!f.colors.includes(colorBucket(item.color))) return false;
-    }
-    if (f.seasons.length > 0) {
-      const season = item.season as Season | null;
-      const matches =
-        season === "all-season" ||
-        (season !== null && f.seasons.includes(season));
-      if (!matches) return false;
     }
     return true;
   });

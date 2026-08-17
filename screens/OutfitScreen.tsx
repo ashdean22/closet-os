@@ -636,12 +636,24 @@ function StepArrow({
       accessibilityState={{ disabled }}
       // Generous hit area — the glyph itself is deliberately small and quiet.
       hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-      className={`w-8 h-8 rounded-full items-center justify-center border ${
+      className={`rounded-full border ${
         disabled ? "border-gray-100" : "border-gray-200"
       }`}
+      style={{ width: 32, height: 32 }}
     >
+      {/* The glyph is centred by making the Text fill the circle and setting
+          lineHeight to its height. Relying on flex centring left it sitting
+          high: ‹ and › have asymmetric font metrics, so the layout box centres
+          while the visible mark does not. */}
       <Text
-        className={`text-lg ${disabled ? "text-gray-300" : "text-indigo-600"}`}
+        className={disabled ? "text-gray-300" : "text-indigo-600"}
+        style={{
+          width: 32,
+          height: 32,
+          lineHeight: 32,
+          fontSize: 18,
+          textAlign: "center",
+        }}
       >
         {glyph}
       </Text>
@@ -650,6 +662,8 @@ function StepArrow({
 }
 
 // ── OutfitCard ────────────────────────────────────────────────────────────────
+
+const REASON_LINES = 3;
 
 function OutfitCard({
   piece,
@@ -664,6 +678,12 @@ function OutfitCard({
   const reason = piece?.reason ?? "";
   const { bg, text } = rolePillStyle(role);
   const caption = [item?.color, item?.category].filter(Boolean).join(" · ");
+
+  const [expanded, setExpanded] = useState(false);
+  // Only offer "More" when the text was actually clipped. While collapsed the
+  // layout reports at most REASON_LINES lines, so hitting that limit is the
+  // signal there may be more to show.
+  const [clipped, setClipped] = useState(false);
 
   return (
     <View
@@ -725,10 +745,34 @@ function OutfitCard({
           ) : null}
         </View>
 
-        {/* Claude's reason */}
-        <Text className="text-gray-700 text-sm leading-5" numberOfLines={3}>
-          {reason}
-        </Text>
+        {/* Claude's reason — tap to expand when it runs past three lines */}
+        <TouchableOpacity
+          activeOpacity={clipped ? 0.6 : 1}
+          onPress={() => clipped && setExpanded((e) => !e)}
+          accessibilityRole={clipped ? "button" : "text"}
+          accessibilityLabel={
+            clipped
+              ? `${reason}. Tap to ${expanded ? "collapse" : "read more"}`
+              : reason
+          }
+        >
+          <Text
+            className="text-gray-700 text-sm leading-5"
+            numberOfLines={expanded ? undefined : REASON_LINES}
+            onTextLayout={(e) => {
+              if (!expanded && e.nativeEvent.lines.length >= REASON_LINES) {
+                setClipped(true);
+              }
+            }}
+          >
+            {reason}
+          </Text>
+          {clipped && (
+            <Text className="text-indigo-600 text-xs font-semibold mt-0.5">
+              {expanded ? "Less" : "More"}
+            </Text>
+          )}
+        </TouchableOpacity>
       </View>
     </View>
   );

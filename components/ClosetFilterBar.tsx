@@ -5,8 +5,6 @@ import {
   CATEGORY_LABELS,
   COLOR_LABELS,
   COLOR_SWATCHES,
-  SEASONS,
-  SEASON_LABELS,
   SORT_OPTIONS,
   activeFilterCount,
   colorBucket,
@@ -15,14 +13,12 @@ import {
   type Category,
   type ClosetFilters,
   type ColorBucket,
-  type Season,
   type SortKey,
 } from "../lib/wardrobe";
 
 type CountableItem = {
   category: string | null;
   color: string | null;
-  season: string | null;
 };
 
 /**
@@ -51,28 +47,18 @@ export default function ClosetFilterBar({
   const counts = useMemo(() => {
     const category = new Map<string, number>();
     const color = new Map<string, number>();
-    const season = new Map<string, number>();
 
     for (const item of items) {
       bump(category, item.category ?? "other");
       bump(color, colorBucket(item.color));
-      // An all-season piece is available in every weather, so it counts
-      // toward each bucket rather than forming its own island.
-      if (item.season === "all-season") {
-        for (const s of SEASONS) bump(season, s);
-      } else if (item.season) {
-        bump(season, item.season);
-        bump(season, "all-season");
-      }
     }
-    return { category, color, season };
+    return { category, color };
   }, [items]);
 
   const availableCategories = CATEGORIES.filter((c) => counts.category.has(c));
   const availableColors = ([...counts.color.keys()] as ColorBucket[]).sort(
     (a, b) => (counts.color.get(b) ?? 0) - (counts.color.get(a) ?? 0),
   );
-  const availableSeasons = SEASONS.filter((s) => counts.season.has(s));
 
   return (
     <View className="gap-3 mb-4">
@@ -153,27 +139,9 @@ export default function ClosetFilterBar({
             }
           />
 
-          <FilterGroup
-            title="Weather"
-            // Said plainly: this reads the season tag, it is not a forecast.
-            subtitle="From each item's season tag"
-            values={availableSeasons}
-            selected={filters.seasons}
-            labelFor={(s) => SEASON_LABELS[s as Season]}
-            countFor={(s) => counts.season.get(s) ?? 0}
-            onToggle={(s) =>
-              onChangeFilters({
-                ...filters,
-                seasons: toggleFilter(filters.seasons, s as Season),
-              })
-            }
-          />
-
           {!filtersAreEmpty(filters) && (
             <TouchableOpacity
-              onPress={() =>
-                onChangeFilters({ categories: [], colors: [], seasons: [] })
-              }
+              onPress={() => onChangeFilters({ categories: [], colors: [] })}
               className="self-start px-3 py-1.5 rounded-lg bg-white border border-gray-200"
             >
               <Text className="text-gray-600 text-xs font-semibold">
