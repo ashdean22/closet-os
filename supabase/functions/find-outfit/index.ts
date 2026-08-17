@@ -141,11 +141,16 @@ Deno.serve(async (req: Request) => {
     const excludeItemIds: string[] = Array.isArray(body?.exclude_item_ids)
       ? body.exclude_item_ids.filter((id: unknown) => typeof id === "string")
       : [];
-    // Default 3: one Claude call producing three looks costs a fraction of three
-    // separate calls, and lets the client's Refresh button swap looks instantly
-    // without spending another request against the user's daily cap.
+    // Defaults to 1, NOT 3. Clients that want variations ask for them
+    // explicitly; v1.0.0 is live on the App Store and never sends this field,
+    // and it only ever renders one look. Defaulting to 3 would triple those
+    // users' output tokens to build two looks they can't see.
+    //
+    // Asking for 3 in one call is still far cheaper than three separate calls
+    // (one embed, one retrieval, one request) — that's why the updated client
+    // sends variations: 3 and swaps between them locally on Refresh.
     const variations = clamp(
-      typeof body?.variations === "number" ? Math.trunc(body.variations) : 3,
+      typeof body?.variations === "number" ? Math.trunc(body.variations) : 1,
       1,
       MAX_VARIATIONS,
     );
