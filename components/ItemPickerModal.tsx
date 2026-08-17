@@ -5,7 +5,6 @@ import {
   Text,
   Image,
   FlatList,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Platform,
@@ -45,12 +44,11 @@ export default function ItemPickerModal({
 }) {
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<PickableItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [category, setCategory] = useState<Category | null>(null);
 
   const fetchItems = useCallback(async () => {
-    setLoading(true);
     setError(null);
     // RLS scopes this to the signed-in user; no explicit user_id filter needed.
     const { data, error: fetchError } = await supabase
@@ -59,19 +57,24 @@ export default function ItemPickerModal({
       .order("created_at", { ascending: false });
 
     if (fetchError) {
-      setError("Couldn't load your closet. Pull down to try again.");
-      setLoading(false);
+      setError("Couldn't load your closet. Tap retry.");
+      setLoaded(true);
       return;
     }
     setItems((data ?? []) as PickableItem[]);
-    setLoading(false);
+    setLoaded(true);
   }, []);
 
-  // Re-fetch on each open so a piece added or deleted since the last visit is
-  // reflected, instead of offering an item that no longer exists.
+  // Stale-while-revalidate: the previously-loaded closet is shown instantly on
+  // reopen and refreshed in the background, so only the very first open waits
+  // on the network. Re-fetching every time is still necessary — a piece may
+  // have been added or deleted since the last visit.
   useEffect(() => {
     if (visible) fetchItems();
   }, [visible, fetchItems]);
+
+  // Only the first open has nothing to show; later opens render stale rows.
+  const showSpinner = !loaded && items.length === 0;
 
   const availableCategories = useMemo(() => {
     const present = new Set(items.map((i) => i.category ?? "other"));
@@ -122,12 +125,11 @@ export default function ItemPickerModal({
 
         {/* ── Category filter ────────────────────────────────────────────── */}
         {availableCategories.length > 1 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingVertical: 10 }}
-            style={{ flexGrow: 0 }}
-          >
+          // Wraps rather than scrolls horizontally: with "All" plus up to seven
+          // categories the row overflowed the screen, and the chips past the
+          // edge looked cut off with nothing signalling they could be scrolled
+          // to. Wrapping costs a little vertical space and shows every option.
+          <View className="flex-row flex-wrap gap-2 px-5 py-2.5">
             <PickerChip
               label="All"
               selected={category === null}
@@ -141,15 +143,15 @@ export default function ItemPickerModal({
                 onPress={() => setCategory(c)}
               />
             ))}
-          </ScrollView>
+          </View>
         )}
 
         {/* ── Grid ───────────────────────────────────────────────────────── */}
-        {loading ? (
+        {showSpinner ? (
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator size="large" color="#4f46e5" />
           </View>
-        ) : error ? (
+        ) : error && items.length === 0 ? (
           <View className="flex-1 items-center justify-center px-8 gap-3">
             <Text className="text-gray-600 text-sm text-center">{error}</Text>
             <TouchableOpacity
@@ -170,6 +172,11 @@ export default function ItemPickerModal({
             }}
             columnWrapperStyle={{ gap: 10 }}
             ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+            // Paint the first two rows immediately instead of waiting on the
+            // whole wardrobe to measure — the main cause of the open feeling slow.
+            initialNumToRender={9}
+            windowSize={5}
+            removeClippedSubviews
             ListEmptyComponent={
               <View className="items-center py-24 gap-2">
                 <Text className="text-4xl">👔</Text>

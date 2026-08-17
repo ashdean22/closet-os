@@ -286,18 +286,12 @@ export default function OutfitScreen() {
                 canSearch && !loading ? "bg-indigo-600" : "bg-gray-300"
               }`}
             >
-              {loading ? (
-                <>
-                  <ActivityIndicator size="small" color="white" />
-                  <Text className="text-white text-base font-semibold">
-                    Styling…
-                  </Text>
-                </>
-              ) : (
-                <Text className="text-white text-base font-semibold">
-                  Find My Outfit
-                </Text>
-              )}
+              {/* No spinner here on purpose — the results area below already
+                  shows one, and two animations for a single wait read as two
+                  things happening. The label carries the state instead. */}
+              <Text className="text-white text-base font-semibold">
+                {loading ? "Styling…" : "Find My Outfit"}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -323,9 +317,6 @@ export default function OutfitScreen() {
               <ActivityIndicator size="large" color="#4f46e5" />
               <Text className="text-gray-600 text-base font-medium">
                 Finding your outfits…
-              </Text>
-              <Text className="text-gray-400 text-xs">
-                Embedding query · searching closet · styling with Claude
               </Text>
             </View>
           )}
@@ -509,28 +500,24 @@ function OutfitResults({
     <View className="gap-4">
       {/* ── Look selector ────────────────────────────────────────────────── */}
       {total > 1 && (
-        <View className="flex-row items-center justify-between">
+        // Arrows rather than dots: with a variable number of looks, dots said
+        // how many there were but not that you could move between them.
+        <View className="flex-row items-center justify-center gap-4">
+          <StepArrow
+            glyph="‹"
+            label="Previous look"
+            disabled={index === 0}
+            onPress={() => onSelectIndex(index - 1)}
+          />
           <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wide">
             Look {index + 1} of {total}
           </Text>
-          <View className="flex-row items-center gap-1.5">
-            {Array.from({ length: total }).map((_, i) => (
-              <TouchableOpacity
-                key={i}
-                onPress={() => onSelectIndex(i)}
-                accessibilityRole="button"
-                accessibilityLabel={`Show look ${i + 1}`}
-                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-              >
-                <View
-                  className={`rounded-full ${
-                    i === index ? "bg-indigo-600" : "bg-gray-300"
-                  }`}
-                  style={{ width: i === index ? 20 : 8, height: 8 }}
-                />
-              </TouchableOpacity>
-            ))}
-          </View>
+          <StepArrow
+            glyph="›"
+            label="Next look"
+            disabled={index >= total - 1}
+            onPress={() => onSelectIndex(index + 1)}
+          />
         </View>
       )}
 
@@ -624,6 +611,41 @@ function OutfitResults({
         </View>
       )}
     </View>
+  );
+}
+
+// ── StepArrow ─────────────────────────────────────────────────────────────────
+
+function StepArrow({
+  glyph,
+  label,
+  disabled,
+  onPress,
+}: {
+  glyph: string;
+  label: string;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      // Generous hit area — the glyph itself is deliberately small and quiet.
+      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+      className={`w-8 h-8 rounded-full items-center justify-center border ${
+        disabled ? "border-gray-100" : "border-gray-200"
+      }`}
+    >
+      <Text
+        className={`text-lg ${disabled ? "text-gray-300" : "text-indigo-600"}`}
+      >
+        {glyph}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
