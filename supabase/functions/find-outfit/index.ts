@@ -52,14 +52,21 @@ const ROLES: Role[] = ["top", "bottom", "outerwear", "shoes", "accessory", "dres
 const CORE_ROLES: Role[] = ["top", "bottom", "shoes"];
 
 /**
- * Hard ceiling on candidates sent to Claude — bounds prompt tokens and cost.
+ * Safety ceiling on candidates sent to Claude.
  *
+ * The default is now to show the stylist the ENTIRE wardrobe — a real stylist
+ * works from everything you own, and filtering by embedding similarity was
+ * quietly hiding two thirds of the tops from it. A typical closet is well
+ * under this number, so for most users nothing is filtered at all.
+ *
+ * This exists only so a very large wardrobe cannot blow up cost or latency.
  * Candidates are the one part of the prompt that is NOT cached (they change
- * every request), so each extra item is paid in full at roughly 160 tokens.
- * This is the real budget guard: per_category below is set generously and
- * capCandidates trims against this number, rather than the other way round.
+ * per query and per refresh), so each item is paid in full at roughly 160
+ * tokens: 120 items is about 19k tokens, or six cents a search at the current
+ * model's input rate. Above this, capCandidates keeps the best-ranked pieces
+ * from each category so breadth survives the trim.
  */
-const MAX_CANDIDATES = 48;
+const MAX_CANDIDATES = 120;
 
 /** More than 3 looks per call stops being useful and just burns tokens. */
 const MAX_VARIATIONS = 3;
@@ -266,14 +273,14 @@ Deno.serve(async (req: Request) => {
     // per_category guarantees the candidate set has options for every slot the
     // closet can fill — a flat top-N could return ten shirts and no shoes,
     // which made a complete outfit impossible regardless of prompting.
-    // Deliberately generous. Wardrobes are lopsided — the owner's has 27 tops
-    // against 6 bottoms — so a small per-slot limit starves exactly the
-    // category with the most to choose from while the others return
-    // everything they have anyway. At 8 the stylist was seeing 8 of 27 tops
-    // and three "different" looks were drawn from the same shortlist.
-    // MAX_CANDIDATES is the real ceiling; capCandidates trims the
-    // lowest-ranked from the biggest categories if this overflows it.
-    const perCategory = variations > 1 ? 20 : 6;
+    // High enough that it never binds for a normal wardrobe: the intent is
+    // "show everything", with MAX_CANDIDATES as the only real guard. A
+    // per-slot limit is the wrong shape for this problem because wardrobes are
+    // lopsided — capping every category at N starves the one category with
+    // real choice (27 tops here) while the shallow ones return everything they
+    // have regardless. Kept finite so a pathological closet can't stream tens
+    // of thousands of rows out of Postgres before capCandidates trims them.
+    const perCategory = 100;
     const excludeIds = [...new Set([...excludeItemIds, ...(anchor ? [anchor.id] : [])])];
 
     const { data: items, error: rpcError } = await supabase.rpc(
