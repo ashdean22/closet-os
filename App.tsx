@@ -3,8 +3,10 @@ import { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFonts } from "expo-font";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
+import { colors, fonts, tracking } from "./lib/theme";
 import AuthScreen from "./screens/AuthScreen";
 import HomeScreen from "./screens/HomeScreen";
 import ClosetScreen from "./screens/ClosetScreen";
@@ -20,6 +22,14 @@ export default function App() {
   // Incrementing this triggers a silent re-fetch in ClosetScreen so new items
   // appear immediately after a successful add without a manual pull-to-refresh.
   const [closetRefreshKey, setClosetRefreshKey] = useState(0);
+
+  // Loaded at runtime rather than embedded via the expo-font config plugin so
+  // type changes ship over EAS Update. The native module is already in the
+  // binary (expo depends on it), so no rebuild is needed.
+  const [fontsLoaded, fontError] = useFonts({
+    [fonts.display]: require("./assets/fonts/FascinateInline-Regular.ttf"),
+    [fonts.deco]: require("./assets/fonts/Limelight-Regular.ttf"),
+  });
 
   useEffect(() => {
     let active = true;
@@ -67,11 +77,15 @@ export default function App() {
     };
   }, []);
 
-  if (initializing) {
+  // Render on a font error too — falling back to the system face is far better
+  // than holding the app on a spinner forever.
+  const fontsReady = fontsLoaded || !!fontError;
+
+  if (initializing || !fontsReady) {
     return (
       <SafeAreaProvider>
-        <View className="flex-1 items-center justify-center bg-white">
-          <ActivityIndicator size="large" color="#4f46e5" />
+        <View className="flex-1 items-center justify-center bg-ground">
+          <ActivityIndicator size="large" color={colors.rust} />
         </View>
       </SafeAreaProvider>
     );
@@ -81,14 +95,15 @@ export default function App() {
     return (
       <SafeAreaProvider>
         <AuthScreen />
-        <StatusBar style="auto" />
+        {/* Auth sits on the deep teal ground, so the status bar inverts here. */}
+        <StatusBar style="light" />
       </SafeAreaProvider>
     );
   }
 
   return (
     <SafeAreaProvider>
-      <View className="flex-1 bg-white">
+      <View className="flex-1 bg-ground">
         {/*
          * All screens stay mounted so state isn't lost when switching tabs.
          * display:'none' removes the subtree from layout without unmounting.
@@ -113,7 +128,7 @@ export default function App() {
 
         <TabBar active={tab} onPress={setTab} />
       </View>
-      <StatusBar style="auto" />
+      <StatusBar style="dark" />
     </SafeAreaProvider>
   );
 }
@@ -147,34 +162,38 @@ function TabBar({
   const insets = useSafeAreaInsets();
 
   return (
-    <View
-      className="flex-row border-t border-gray-200 bg-white"
-      style={{ paddingBottom: insets.bottom }}
-    >
+    <View style={{ backgroundColor: colors.surface, paddingBottom: insets.bottom }}>
+      {/* Doubled rule — the Deco signature: a hairline, a gap, then the edge. */}
+      <View style={{ height: 2, backgroundColor: colors.brass }} />
+      <View style={{ height: 3, backgroundColor: colors.surface }} />
+      <View style={{ height: 1, backgroundColor: colors.edge }} />
+
+      <View className="flex-row">
       <TabItem
         label="Add Item"
-        glyph="＋"
+        glyph={"\uFF0B\uFE0E"}
         active={active === "home"}
         onPress={() => onPress("home")}
       />
       <TabItem
         label="Closet"
-        glyph="▤"
+        glyph={"\u25A4\uFE0E"}
         active={active === "closet"}
         onPress={() => onPress("closet")}
       />
       <TabItem
         label="Outfit"
-        glyph="✦"
+        glyph={"\u2726\uFE0E"}
         active={active === "outfit"}
         onPress={() => onPress("outfit")}
       />
       <TabItem
         label="Settings"
-        glyph="⚙"
+        glyph={"\u2699\uFE0E"}
         active={active === "settings"}
         onPress={() => onPress("settings")}
       />
+      </View>
     </View>
   );
 }
@@ -190,15 +209,34 @@ function TabItem({
   active: boolean;
   onPress: () => void;
 }) {
-  const color = active ? "text-indigo-600" : "text-gray-400";
+  const tint = active ? colors.rust : colors.inkFaint;
 
   return (
     <TouchableOpacity
       onPress={onPress}
-      className="flex-1 items-center justify-center py-3 gap-0.5"
+      className="flex-1 items-center justify-center pt-2 pb-3"
     >
-      <Text className={`text-xl ${color}`}>{glyph}</Text>
-      <Text className={`text-xs font-medium ${color}`}>{label}</Text>
+      {/* Brass cap over the active tab; a transparent twin keeps rows aligned. */}
+      <View
+        style={{
+          height: 2,
+          width: 22,
+          marginBottom: 6,
+          backgroundColor: active ? colors.brass : "transparent",
+        }}
+      />
+      <Text style={{ fontSize: 20, lineHeight: 24, color: tint }}>{glyph}</Text>
+      <Text
+        style={{
+          fontFamily: fonts.deco,
+          fontSize: 9,
+          letterSpacing: tracking.deco,
+          marginTop: 3,
+          color: tint,
+        }}
+      >
+        {label.toUpperCase()}
+      </Text>
     </TouchableOpacity>
   );
 }

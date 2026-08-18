@@ -40,19 +40,19 @@ export default class ErrorBoundary extends React.Component<Props, State> {
     if (!this.state.hasError) return this.props.children;
 
     return (
-      <View className="flex-1 items-center justify-center bg-white px-8 gap-4">
+      <View className="flex-1 items-center justify-center bg-ground px-8 gap-4">
         <Text className="text-4xl">⚠️</Text>
-        <Text className="text-gray-800 text-lg font-semibold text-center">
+        <Text className="text-ink text-lg font-semibold text-center">
           Something broke on this screen
         </Text>
-        <Text className="text-gray-500 text-sm text-center leading-5">
+        <Text className="text-ink-soft text-sm text-center leading-5">
           {this.props.label
             ? `The ${this.props.label} screen hit an unexpected error. You can try again — the rest of the app is fine.`
             : "An unexpected error occurred. You can try again — the rest of the app is fine."}
         </Text>
         <TouchableOpacity
           onPress={this.reset}
-          className="bg-indigo-600 px-6 py-3 rounded-xl mt-2"
+          className="bg-rust px-6 py-3 rounded mt-2"
         >
           <Text className="text-white text-base font-semibold">Try again</Text>
         </TouchableOpacity>

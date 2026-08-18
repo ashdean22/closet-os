@@ -14,7 +14,8 @@
           "photosPermission": "Capsule accesses your photo library so you can add existing photos of clothing items.",
           "savePhotosPermission": "Capsule saves clothing photos to your photo library."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "ios": {
       "supportsTablet": false,

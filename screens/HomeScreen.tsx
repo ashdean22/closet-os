@@ -10,7 +10,9 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import ScreenWrapper from "../components/ScreenWrapper";
+import DecoHeader from "../components/DecoHeader";
 import { supabase } from "../lib/supabase";
+import { colors, fonts, tracking } from "../lib/theme";
 import { readFunctionError, type FunctionErrorDetail } from "../lib/functionErrors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -246,18 +248,18 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
         contentContainerClassName="items-center px-6 py-8 gap-6"
         showsVerticalScrollIndicator={false}
       >
-        <Text className="text-2xl font-bold text-gray-800">Add Item</Text>
+        <DecoHeader title="Add Item" />
 
         {/* Photo preview */}
         {asset ? (
           <Image
             source={{ uri: asset.uri }}
-            className="w-72 h-72 rounded-2xl"
+            className="w-72 h-72 rounded"
             resizeMode="cover"
           />
         ) : (
-          <View className="w-72 h-72 rounded-2xl bg-gray-100 items-center justify-center">
-            <Text className="text-gray-400 text-base">No photo selected</Text>
+          <View className="w-72 h-72 rounded bg-sunken items-center justify-center">
+            <Text className="text-ink-faint text-base">No photo selected</Text>
           </View>
         )}
 
@@ -277,11 +279,11 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
         {/* Inline save error */}
         {saveError && (
           <View className="w-full gap-3">
-            <View className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-              <Text className="text-red-700 text-sm font-semibold mb-0.5">
+            <View className="bg-danger-tint border border-danger-edge rounded px-4 py-3">
+              <Text className="text-danger text-sm font-semibold mb-0.5">
                 Couldn't save item
               </Text>
-              <Text className="text-red-600 text-sm leading-5">{saveError.message}</Text>
+              <Text className="text-danger text-sm leading-5">{saveError.message}</Text>
             </View>
             {/* Scan tips get top billing when the model couldn't find an item —
                 black text, larger type, so testers actually read them. */}
@@ -291,7 +293,7 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
 
         {/* Tip + pick buttons */}
         <View className="w-full gap-5">
-          <Text className="text-gray-400 text-xs text-center">
+          <Text className="text-ink-faint text-xs text-center">
             Tip: good lighting and the full item in frame gives the best tags
           </Text>
 
@@ -299,8 +301,8 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
             <TouchableOpacity
               onPress={openCamera}
               disabled={saving}
-              className={`py-4 rounded-xl w-full items-center ${
-                saving ? "bg-indigo-300" : "bg-indigo-600"
+              className={`py-4 rounded w-full items-center ${
+                saving ? "bg-rust-muted" : "bg-rust"
               }`}
             >
               <Text className="text-white text-base font-semibold">Take Picture</Text>
@@ -309,9 +311,9 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
             <TouchableOpacity
               onPress={openLibrary}
               disabled={saving}
-              className="py-4 rounded-xl w-full items-center bg-gray-100"
+              className="py-4 rounded w-full items-center bg-sunken"
             >
-              <Text className="text-gray-700 text-base font-semibold">
+              <Text className="text-ink text-base font-semibold">
                 Choose from Library
               </Text>
             </TouchableOpacity>
@@ -323,17 +325,25 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
           <TouchableOpacity
             onPress={handleSave}
             disabled={!asset || saving}
-            className={`px-8 py-4 rounded-xl w-full items-center flex-row justify-center gap-2 ${
-              asset && !saving ? "bg-emerald-600" : "bg-gray-300"
+            className={`px-8 py-4 rounded w-full items-center flex-row justify-center gap-2 ${
+              asset && !saving ? "bg-rust" : "bg-sunken"
             }`}
           >
             {saving ? (
               <>
-                <ActivityIndicator size="small" color="white" />
-                <Text className="text-white text-base font-semibold">Saving…</Text>
+                <ActivityIndicator size="small" color={colors.ground} />
+                <Text className="text-ground text-base font-semibold">Saving…</Text>
               </>
             ) : (
-              <Text className="text-white text-base font-semibold">Save to Closet</Text>
+              // Disabled sits on the sunken tone, so the label has to darken too
+              // — white on tan was unreadable.
+              <Text
+                className={`text-base font-semibold ${
+                  asset && !saving ? "text-ground" : "text-ink-faint"
+                }`}
+              >
+                Save to Closet
+              </Text>
             )}
           </TouchableOpacity>
         )}
@@ -346,8 +356,8 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
 
 function ScanTips() {
   return (
-    <View className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-4 gap-2">
-      <Text className="text-black text-base font-bold">
+    <View className="w-full bg-surface border border-edge rounded px-4 py-4 gap-2">
+      <Text className="text-ink text-base font-bold">
         Tips for a better scan
       </Text>
       {[
@@ -357,8 +367,8 @@ function ScanTips() {
         "Photograph one item at a time",
       ].map((tip) => (
         <View key={tip} className="flex-row gap-2">
-          <Text className="text-black text-base leading-6">•</Text>
-          <Text className="text-black text-base leading-6 flex-1">{tip}</Text>
+          <Text className="text-ink text-base leading-6">•</Text>
+          <Text className="text-ink text-base leading-6 flex-1">{tip}</Text>
         </View>
       ))}
     </View>
@@ -388,11 +398,11 @@ function DuplicateWarning({ newImageUrl, newTags, match, onKeep, onRemove }: Dup
   return (
     <View className="w-full gap-4">
       {/* Header */}
-      <View className="bg-amber-50 border border-amber-200 rounded-2xl p-4 gap-1">
-        <Text className="text-amber-800 text-base font-semibold">
+      <View className="bg-notice-tint border border-notice-edge rounded p-4 gap-1">
+        <Text className="text-notice text-base font-semibold">
           You may already own something similar
         </Text>
-        <Text className="text-amber-600 text-sm">
+        <Text className="text-notice text-sm">
           The new item is {pct}% similar to an existing piece. Keep both or remove the new one.
         </Text>
       </View>
@@ -404,23 +414,23 @@ function DuplicateWarning({ newImageUrl, newTags, match, onKeep, onRemove }: Dup
           category={newTags.category}
           color={newTags.color}
           label="New"
-          labelBg="bg-indigo-100"
-          labelText="text-indigo-700"
+          labelBg="bg-rust-tint"
+          labelText="text-rust-deep"
         />
         <ItemCompareCard
           imageUrl={match.image_url}
           category={match.category}
           color={match.color}
           label="Existing"
-          labelBg="bg-gray-100"
-          labelText="text-gray-600"
+          labelBg="bg-sunken"
+          labelText="text-ink-soft"
         />
       </View>
 
       {/* Actions */}
       <TouchableOpacity
         onPress={onKeep}
-        className="bg-emerald-600 py-4 rounded-xl w-full items-center"
+        className="bg-rust py-4 rounded w-full items-center"
       >
         <Text className="text-white text-base font-semibold">Keep both</Text>
       </TouchableOpacity>
@@ -428,10 +438,10 @@ function DuplicateWarning({ newImageUrl, newTags, match, onKeep, onRemove }: Dup
       <TouchableOpacity
         onPress={handleRemove}
         disabled={removing}
-        className="border border-red-300 py-4 rounded-xl w-full items-center flex-row justify-center gap-2"
+        className="border border-danger-edge py-4 rounded w-full items-center flex-row justify-center gap-2"
       >
-        {removing && <ActivityIndicator size="small" color="#dc2626" />}
-        <Text className="text-red-600 text-base font-semibold">
+        {removing && <ActivityIndicator size="small" color={colors.danger} />}
+        <Text className="text-danger text-base font-semibold">
           Remove new item
         </Text>
       </TouchableOpacity>
@@ -455,7 +465,7 @@ function ItemCompareCard({
   labelText: string;
 }) {
   return (
-    <View className="flex-1 rounded-2xl overflow-hidden border border-gray-100 bg-white">
+    <View className="flex-1 rounded overflow-hidden border border-edge bg-surface">
       {imageUrl ? (
         <Image
           source={{ uri: imageUrl }}
@@ -465,19 +475,19 @@ function ItemCompareCard({
       ) : (
         <View
           style={{ width: "100%", aspectRatio: 1 }}
-          className="bg-gray-100 items-center justify-center"
+          className="bg-sunken items-center justify-center"
         >
-          <Text className="text-gray-400 text-xs">No photo</Text>
+          <Text className="text-ink-faint text-xs">No photo</Text>
         </View>
       )}
       <View className="p-2 gap-1">
         <View className={`self-start px-2 py-0.5 rounded-full ${labelBg}`}>
           <Text className={`text-xs font-semibold ${labelText}`}>{label}</Text>
         </View>
-        <Text className="text-xs font-semibold text-gray-800 capitalize" numberOfLines={1}>
+        <Text className="text-xs font-semibold text-ink capitalize" numberOfLines={1}>
           {category ?? "—"}
         </Text>
-        <Text className="text-xs text-gray-500 capitalize" numberOfLines={1}>
+        <Text className="text-xs text-ink-soft capitalize" numberOfLines={1}>
           {color ?? "—"}
         </Text>
       </View>
@@ -489,7 +499,7 @@ function ItemCompareCard({
 
 function TagCard({ tags }: { tags: ItemTags }) {
   return (
-    <View className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-4 gap-3">
+    <View className="w-full bg-surface border border-edge rounded p-4 gap-3">
       <View className="flex-row flex-wrap gap-2">
         <Pill label={tags.color} color="indigo" />
         {tags.secondaryColor ? <Pill label={tags.secondaryColor} color="violet" /> : null}
@@ -498,7 +508,7 @@ function TagCard({ tags }: { tags: ItemTags }) {
         <Pill label={tags.season} color="emerald" />
         <Pill label={tags.material} color="rose" />
       </View>
-      <Text className="text-gray-600 text-sm leading-5 italic">{tags.description}</Text>
+      <Text className="text-ink-soft text-sm leading-5 italic">{tags.description}</Text>
     </View>
   );
 }
@@ -506,12 +516,12 @@ function TagCard({ tags }: { tags: ItemTags }) {
 type PillColor = "indigo" | "violet" | "sky" | "amber" | "emerald" | "rose";
 
 const pillStyles: Record<PillColor, { bg: string; text: string }> = {
-  indigo:  { bg: "bg-indigo-100",  text: "text-indigo-700"  },
-  violet:  { bg: "bg-violet-100",  text: "text-violet-700"  },
-  sky:     { bg: "bg-sky-100",     text: "text-sky-700"     },
-  amber:   { bg: "bg-amber-100",   text: "text-amber-700"   },
-  emerald: { bg: "bg-emerald-100", text: "text-emerald-700" },
-  rose:    { bg: "bg-rose-100",    text: "text-rose-700"    },
+  indigo:  { bg: "bg-chip-teal",  text: "text-chip-teal-ink"  },
+  violet:  { bg: "bg-chip-plum",  text: "text-chip-plum-ink"  },
+  sky:     { bg: "bg-chip-sky",     text: "text-chip-sky-ink"     },
+  amber:   { bg: "bg-chip-brass",   text: "text-chip-brass-ink"   },
+  emerald: { bg: "bg-chip-olive", text: "text-chip-olive-ink" },
+  rose:    { bg: "bg-chip-rust",    text: "text-chip-rust-ink"    },
 };
 
 function Pill({ label, color }: { label: string; color: PillColor }) {

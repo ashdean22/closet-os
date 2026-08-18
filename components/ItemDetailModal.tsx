@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
+import { colors, fonts, tracking } from "../lib/theme";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -208,7 +209,7 @@ export default function ItemDetailModal({
         {/* Drag handle (iOS pageSheet) */}
         {Platform.OS === "ios" && (
           <View className="items-center pt-3 pb-1">
-            <View className="w-9 h-1 rounded-full bg-gray-300" />
+            <View className="w-9 h-1 rounded-full bg-edge" />
           </View>
         )}
 
@@ -228,9 +229,9 @@ export default function ItemDetailModal({
             ) : (
               <View
                 style={{ width: "100%", height: 320 }}
-                className="bg-gray-100 items-center justify-center"
+                className="bg-sunken items-center justify-center"
               >
-                <Text className="text-gray-400">No photo</Text>
+                <Text className="text-ink-faint">No photo</Text>
               </View>
             )}
             <TouchableOpacity
@@ -256,14 +257,14 @@ export default function ItemDetailModal({
                 {/* ── Tags (read-only) ─────────────────────────────────────── */}
                 <View className="gap-2">
                   <View className="flex-row items-center justify-between">
-                    <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                    <Text className="text-xs font-semibold text-ink-faint uppercase tracking-wide">
                       Tags
                     </Text>
                     <TouchableOpacity
                       onPress={startEditing}
-                      className="px-3 py-1 rounded-lg bg-gray-100"
+                      className="px-3 py-1 rounded bg-sunken"
                     >
-                      <Text className="text-gray-600 text-xs font-medium">Edit tags</Text>
+                      <Text className="text-ink-soft text-xs font-medium">Edit tags</Text>
                     </TouchableOpacity>
                   </View>
                   <View className="flex-row flex-wrap gap-2">
@@ -278,12 +279,12 @@ export default function ItemDetailModal({
 
                 {/* ── Description ──────────────────────────────────────────── */}
                 <View className="gap-2">
-                  <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                  <Text className="text-xs font-semibold text-ink-faint uppercase tracking-wide">
                     Description
                   </Text>
-                  <Text className="text-gray-700 text-sm leading-6">
+                  <Text className="text-ink text-sm leading-6">
                     {item.description ?? (
-                      <Text className="text-gray-400 italic">No description</Text>
+                      <Text className="text-ink-faint italic">No description</Text>
                     )}
                   </Text>
                 </View>
@@ -295,10 +296,10 @@ export default function ItemDetailModal({
               <TouchableOpacity
                 onPress={handleDelete}
                 disabled={deleting}
-                className="mt-2 py-4 rounded-xl border border-red-200 items-center flex-row justify-center gap-2"
+                className="mt-2 py-4 rounded border border-danger-edge items-center flex-row justify-center gap-2"
               >
-                {deleting && <ActivityIndicator size="small" color="#dc2626" />}
-                <Text className="text-red-600 text-base font-semibold">
+                {deleting && <ActivityIndicator size="small" color={colors.danger} />}
+                <Text className="text-danger text-base font-semibold">
                   {deleting ? "Deleting…" : "Delete from Closet"}
                 </Text>
               </TouchableOpacity>
@@ -327,7 +328,7 @@ function TagEditor({
 }) {
   return (
     <View className="gap-5">
-      <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+      <Text className="text-xs font-semibold text-ink-faint uppercase tracking-wide">
         Edit tags
       </Text>
 
@@ -370,16 +371,16 @@ function TagEditor({
       />
 
       <View className="gap-1.5">
-        <Text className="text-xs font-medium text-gray-500">Description</Text>
+        <Text className="text-xs font-medium text-ink-soft">Description</Text>
         <TextInput
           value={draft.description}
           onChangeText={(t) => onChange("description", t)}
           multiline
           scrollEnabled={false}
-          className="border border-gray-200 rounded-xl p-3 text-gray-800 text-sm leading-5 bg-gray-50"
+          className="border border-edge rounded p-3 text-ink text-sm leading-5 bg-surface"
           style={{ minHeight: 80, textAlignVertical: "top" }}
         />
-        <Text className="text-gray-400 text-xs">
+        <Text className="text-ink-faint text-xs">
           Used for outfit search — describe style, color, and occasion.
         </Text>
       </View>
@@ -388,15 +389,15 @@ function TagEditor({
         <TouchableOpacity
           onPress={onCancel}
           disabled={saving}
-          className="flex-1 py-3 rounded-xl border border-gray-200 items-center"
+          className="flex-1 py-3 rounded border border-edge items-center"
         >
-          <Text className="text-gray-500 text-sm font-medium">Cancel</Text>
+          <Text className="text-ink-soft text-sm font-medium">Cancel</Text>
         </TouchableOpacity>
         <TouchableOpacity
           onPress={onSave}
           disabled={saving}
-          className={`flex-1 py-3 rounded-xl items-center flex-row justify-center gap-1.5 ${
-            saving ? "bg-indigo-300" : "bg-indigo-600"
+          className={`flex-1 py-3 rounded items-center flex-row justify-center gap-1.5 ${
+            saving ? "bg-rust-muted" : "bg-rust"
           }`}
         >
           {saving && <ActivityIndicator size="small" color="white" />}
@@ -420,7 +421,7 @@ function EnumPicker({
 }) {
   return (
     <View className="gap-1.5">
-      <Text className="text-xs font-medium text-gray-500">{label}</Text>
+      <Text className="text-xs font-medium text-ink-soft">{label}</Text>
       <View className="flex-row flex-wrap gap-2">
         {options.map((opt) => {
           const selected = opt === value;
@@ -430,13 +431,13 @@ function EnumPicker({
               onPress={() => onSelect(opt)}
               className={`px-3 py-1.5 rounded-full border ${
                 selected
-                  ? "bg-indigo-600 border-indigo-600"
-                  : "bg-white border-gray-200"
+                  ? "bg-rust border-rust"
+                  : "bg-surface border-edge"
               }`}
             >
               <Text
                 className={`text-xs font-medium capitalize ${
-                  selected ? "text-white" : "text-gray-600"
+                  selected ? "text-white" : "text-ink-soft"
                 }`}
               >
                 {opt}
@@ -462,14 +463,14 @@ function FieldInput({
 }) {
   return (
     <View className="gap-1.5">
-      <Text className="text-xs font-medium text-gray-500">{label}</Text>
+      <Text className="text-xs font-medium text-ink-soft">{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#9ca3af"
+        placeholderTextColor={colors.inkFaint}
         autoCapitalize="none"
-        className="border border-gray-200 rounded-xl px-3 py-2.5 text-gray-800 text-sm bg-gray-50"
+        className="border border-edge rounded px-3 py-2.5 text-ink text-sm bg-surface"
       />
     </View>
   );
@@ -480,12 +481,12 @@ function FieldInput({
 type Hue = "sky" | "indigo" | "violet" | "amber" | "emerald" | "rose";
 
 const hueStyles: Record<Hue, { bg: string; text: string }> = {
-  sky:     { bg: "bg-sky-100",     text: "text-sky-700"     },
-  indigo:  { bg: "bg-indigo-100",  text: "text-indigo-700"  },
-  violet:  { bg: "bg-violet-100",  text: "text-violet-700"  },
-  amber:   { bg: "bg-amber-100",   text: "text-amber-700"   },
-  emerald: { bg: "bg-emerald-100", text: "text-emerald-700" },
-  rose:    { bg: "bg-rose-100",    text: "text-rose-700"    },
+  sky:     { bg: "bg-chip-sky",     text: "text-chip-sky-ink"     },
+  indigo:  { bg: "bg-chip-teal",  text: "text-chip-teal-ink"  },
+  violet:  { bg: "bg-chip-plum",  text: "text-chip-plum-ink"  },
+  amber:   { bg: "bg-chip-brass",   text: "text-chip-brass-ink"   },
+  emerald: { bg: "bg-chip-olive", text: "text-chip-olive-ink" },
+  rose:    { bg: "bg-chip-rust",    text: "text-chip-rust-ink"    },
 };
 
 function TagPill({ label, hue }: { label: string; hue: Hue }) {

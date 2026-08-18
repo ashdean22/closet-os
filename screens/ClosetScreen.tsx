@@ -12,6 +12,7 @@ import {
 import ScreenWrapper from "../components/ScreenWrapper";
 import ItemDetailModal, { type DetailItem } from "../components/ItemDetailModal";
 import { supabase } from "../lib/supabase";
+import { colors, fonts, tracking } from "../lib/theme";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -78,7 +79,7 @@ export default function ClosetScreen({ refreshKey = 0 }: { refreshKey?: number }
     return (
       <ScreenWrapper>
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color="#4f46e5" />
+          <ActivityIndicator size="large" color={colors.rust} />
         </View>
       </ScreenWrapper>
     );
@@ -97,15 +98,28 @@ export default function ClosetScreen({ refreshKey = 0 }: { refreshKey?: number }
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#4f46e5"
+            tintColor={colors.rust}
           />
         }
         ListHeaderComponent={<ClosetHeader count={items.length} />}
         ListEmptyComponent={
           <View className="items-center justify-center py-24">
-            <Text className="text-5xl mb-4">👔</Text>
-            <Text className="text-gray-500 text-base text-center">
-              No items yet —{"\n"}add your first piece
+            <Text className="text-5xl mb-5">👔</Text>
+            <Text
+              style={{
+                fontFamily: fonts.deco,
+                fontSize: 16,
+                letterSpacing: tracking.deco,
+                color: colors.ink,
+                textAlign: "center",
+              }}
+            >
+              Nothing Here Yet
+            </Text>
+            <Text
+              style={{ color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 6 }}
+            >
+              Add your first piece to get started.
             </Text>
           </View>
         }
@@ -129,13 +143,34 @@ export default function ClosetScreen({ refreshKey = 0 }: { refreshKey?: number }
 
 function ClosetHeader({ count }: { count: number }) {
   return (
-    <View className="flex-row items-baseline justify-between mb-4">
-      <Text className="text-2xl font-bold text-gray-800">My Closet</Text>
-      {count > 0 && (
-        <Text className="text-gray-400 text-sm">
-          {count} {count === 1 ? "item" : "items"}
+    <View className="mb-5">
+      <View className="flex-row items-baseline justify-between">
+        <Text
+          style={{
+            fontFamily: fonts.deco,
+            fontSize: 24,
+            letterSpacing: tracking.deco,
+            color: colors.ink,
+          }}
+        >
+          My Closet
         </Text>
-      )}
+        {count > 0 && (
+          <Text
+            style={{
+              fontFamily: fonts.deco,
+              fontSize: 12,
+              letterSpacing: tracking.deco,
+              color: colors.rust,
+            }}
+          >
+            {count} {count === 1 ? "ITEM" : "ITEMS"}
+          </Text>
+        )}
+      </View>
+      {/* Doubled Deco rule under the title. */}
+      <View style={{ height: 2, backgroundColor: colors.ink, marginTop: 8 }} />
+      <View style={{ height: 1, backgroundColor: colors.brass, marginTop: 2 }} />
     </View>
   );
 }
@@ -151,10 +186,10 @@ function ItemCard({
 }) {
   return (
     <TouchableOpacity
-      style={{ flex: 1 }}
+      style={{ flex: 1, borderRadius: 4 }}
       activeOpacity={0.85}
       onPress={() => onPress(item)}
-      className="bg-white rounded-2xl overflow-hidden border border-gray-100"
+      className="bg-surface overflow-hidden border border-edge"
     >
       {item.image_url ? (
         <Image
@@ -165,23 +200,40 @@ function ItemCard({
       ) : (
         <View
           style={{ width: "100%", aspectRatio: 1 }}
-          className="bg-gray-100 items-center justify-center"
+          className="bg-sunken items-center justify-center"
         >
-          <Text className="text-gray-400 text-xs">No image</Text>
+          <Text className="text-ink-faint text-xs">No image</Text>
         </View>
       )}
 
-      <View className="px-2 py-2 gap-0.5">
+      {/* Brass hairline separating the photo from its label plate. */}
+      <View style={{ height: 1, backgroundColor: colors.brass }} />
+
+      <View className="px-2.5 py-2">
         <Text
-          className="text-sm font-semibold text-gray-800 capitalize"
+          style={{
+            fontFamily: fonts.deco,
+            fontSize: 12,
+            letterSpacing: tracking.deco,
+            color: colors.ink,
+            textTransform: "capitalize",
+          }}
           numberOfLines={1}
         >
           {item.category ?? "—"}
         </Text>
-        <Text className="text-xs text-gray-500 capitalize" numberOfLines={1}>
+        <Text
+          className="capitalize"
+          style={{ fontSize: 12, color: colors.inkSoft, marginTop: 2 }}
+          numberOfLines={1}
+        >
           {item.color ?? "—"}
         </Text>
-        <Text className="text-xs text-gray-400 capitalize" numberOfLines={1}>
+        <Text
+          className="capitalize"
+          style={{ fontSize: 11, color: colors.inkFaint }}
+          numberOfLines={1}
+        >
           {item.formality ?? "—"}
         </Text>
       </View>
