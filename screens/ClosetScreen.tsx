@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -11,8 +11,16 @@ import {
 } from "react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import ItemDetailModal, { type DetailItem } from "../components/ItemDetailModal";
+import ClosetFilterBar from "../components/ClosetFilterBar";
 import { supabase } from "../lib/supabase";
-import { colors, fonts, tracking } from "../lib/theme";
+import {
+  EMPTY_FILTERS,
+  filterItems,
+  filtersAreEmpty,
+  sortItems,
+  type ClosetFilters,
+  type SortKey,
+} from "../lib/wardrobe";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -26,6 +34,16 @@ export default function ClosetScreen({ refreshKey = 0 }: { refreshKey?: number }
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
+  const [filters, setFilters] = useState<ClosetFilters>(EMPTY_FILTERS);
+  const [sort, setSort] = useState<SortKey>("newest");
+
+  // Filtering and sorting are both client-side: the whole closet is already in
+  // memory after fetchItems, so a round-trip per chip press would be slower and
+  // would spend requests to re-fetch rows we're holding.
+  const visibleItems = useMemo(
+    () => sortItems(filterItems(items, filters), sort),
+    [items, filters, sort],
+  );
 
   const fetchItems = useCallback(async () => {
     const { data, error } = await supabase
@@ -79,7 +97,7 @@ export default function ClosetScreen({ refreshKey = 0 }: { refreshKey?: number }
     return (
       <ScreenWrapper>
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.rust} />
+          <ActivityIndicator size="large" color="#4f46e5" />
         </View>
       </ScreenWrapper>
     );
@@ -88,7 +106,7 @@ export default function ClosetScreen({ refreshKey = 0 }: { refreshKey?: number }
   return (
     <ScreenWrapper>
       <FlatList
-        data={items}
+        data={visibleItems}
         keyExtractor={(item) => item.id}
         numColumns={2}
         contentContainerStyle={{ padding: 16, paddingBottom: 8 }}
@@ -98,30 +116,56 @@ export default function ClosetScreen({ refreshKey = 0 }: { refreshKey?: number }
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={colors.rust}
+            tintColor="#4f46e5"
           />
         }
-        ListHeaderComponent={<ClosetHeader count={items.length} />}
-        ListEmptyComponent={
-          <View className="items-center justify-center py-24">
-            <Text className="text-5xl mb-5">👔</Text>
-            <Text
-              style={{
-                fontFamily: fonts.deco,
-                fontSize: 16,
-                letterSpacing: tracking.deco,
-                color: colors.ink,
-                textAlign: "center",
-              }}
-            >
-              Nothing Here Yet
-            </Text>
-            <Text
-              style={{ color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 6 }}
-            >
-              Add your first piece to get started.
-            </Text>
+        // Passed as an element, not a render function: an inline arrow would be
+        // a new component type every render and would reset the filter panel's
+        // open/closed state on each keystroke of interaction.
+        ListHeaderComponent={
+          <View>
+            <ClosetHeader
+              count={items.length}
+              showing={visibleItems.length}
+              filtered={!filtersAreEmpty(filters)}
+            />
+            {items.length > 0 && (
+              <ClosetFilterBar
+                items={items}
+                filters={filters}
+                sort={sort}
+                onChangeFilters={setFilters}
+                onChangeSort={setSort}
+              />
+            )}
           </View>
+        }
+        ListEmptyComponent={
+          items.length > 0 ? (
+            // The closet has items, they're just all filtered out — say that
+            // rather than showing the "add your first piece" empty state.
+            <View className="items-center justify-center py-20 gap-3">
+              <Text className="text-4xl">🔍</Text>
+              <Text className="text-gray-500 text-base text-center">
+                Nothing matches those filters.
+              </Text>
+              <TouchableOpacity
+                onPress={() => setFilters(EMPTY_FILTERS)}
+                className="px-4 py-2 rounded-lg bg-gray-100"
+              >
+                <Text className="text-gray-700 text-sm font-semibold">
+                  Clear filters
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View className="items-center justify-center py-24">
+              <Text className="text-5xl mb-4">👔</Text>
+              <Text className="text-gray-500 text-base text-center">
+                No items yet —{"\n"}add your first piece
+              </Text>
+            </View>
+          )
         }
         renderItem={({ item }) => (
           <ItemCard item={item} onPress={setSelectedItem} />
@@ -141,36 +185,25 @@ export default function ClosetScreen({ refreshKey = 0 }: { refreshKey?: number }
 // ── ClosetHeader ──────────────────────────────────────────────────────────────
 // Log Out lives on the Settings tab now — this header is title-only.
 
-function ClosetHeader({ count }: { count: number }) {
+function ClosetHeader({
+  count,
+  showing,
+  filtered,
+}: {
+  count: number;
+  showing: number;
+  filtered: boolean;
+}) {
   return (
-    <View className="mb-5">
-      <View className="flex-row items-baseline justify-between">
-        <Text
-          style={{
-            fontFamily: fonts.deco,
-            fontSize: 24,
-            letterSpacing: tracking.deco,
-            color: colors.ink,
-          }}
-        >
-          My Closet
+    <View className="flex-row items-baseline justify-between mb-4">
+      <Text className="text-2xl font-bold text-gray-800">My Closet</Text>
+      {count > 0 && (
+        <Text className="text-gray-400 text-sm">
+          {filtered
+            ? `${showing} of ${count}`
+            : `${count} ${count === 1 ? "item" : "items"}`}
         </Text>
-        {count > 0 && (
-          <Text
-            style={{
-              fontFamily: fonts.deco,
-              fontSize: 12,
-              letterSpacing: tracking.deco,
-              color: colors.rust,
-            }}
-          >
-            {count} {count === 1 ? "ITEM" : "ITEMS"}
-          </Text>
-        )}
-      </View>
-      {/* Doubled Deco rule under the title. */}
-      <View style={{ height: 2, backgroundColor: colors.ink, marginTop: 8 }} />
-      <View style={{ height: 1, backgroundColor: colors.brass, marginTop: 2 }} />
+      )}
     </View>
   );
 }
@@ -186,10 +219,10 @@ function ItemCard({
 }) {
   return (
     <TouchableOpacity
-      style={{ flex: 1, borderRadius: 4 }}
+      style={{ flex: 1 }}
       activeOpacity={0.85}
       onPress={() => onPress(item)}
-      className="bg-surface overflow-hidden border border-edge"
+      className="bg-white rounded-2xl overflow-hidden border border-gray-100"
     >
       {item.image_url ? (
         <Image
@@ -200,40 +233,23 @@ function ItemCard({
       ) : (
         <View
           style={{ width: "100%", aspectRatio: 1 }}
-          className="bg-sunken items-center justify-center"
+          className="bg-gray-100 items-center justify-center"
         >
-          <Text className="text-ink-faint text-xs">No image</Text>
+          <Text className="text-gray-400 text-xs">No image</Text>
         </View>
       )}
 
-      {/* Brass hairline separating the photo from its label plate. */}
-      <View style={{ height: 1, backgroundColor: colors.brass }} />
-
-      <View className="px-2.5 py-2">
+      <View className="px-2 py-2 gap-0.5">
         <Text
-          style={{
-            fontFamily: fonts.deco,
-            fontSize: 12,
-            letterSpacing: tracking.deco,
-            color: colors.ink,
-            textTransform: "capitalize",
-          }}
+          className="text-sm font-semibold text-gray-800 capitalize"
           numberOfLines={1}
         >
           {item.category ?? "—"}
         </Text>
-        <Text
-          className="capitalize"
-          style={{ fontSize: 12, color: colors.inkSoft, marginTop: 2 }}
-          numberOfLines={1}
-        >
+        <Text className="text-xs text-gray-500 capitalize" numberOfLines={1}>
           {item.color ?? "—"}
         </Text>
-        <Text
-          className="capitalize"
-          style={{ fontSize: 11, color: colors.inkFaint }}
-          numberOfLines={1}
-        >
+        <Text className="text-xs text-gray-400 capitalize" numberOfLines={1}>
           {item.formality ?? "—"}
         </Text>
       </View>

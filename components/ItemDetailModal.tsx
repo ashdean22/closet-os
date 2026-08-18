@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import ImageZoomModal from "./ImageZoomModal";
 import { supabase } from "../lib/supabase";
 import { colors, fonts, tracking } from "../lib/theme";
 
@@ -78,6 +79,7 @@ export default function ItemDetailModal({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [zoomUri, setZoomUri] = useState<string | null>(null);
 
   // Reset edit state when a new item is opened. Also resets `deleting` so the
   // Delete button is never stuck in a "Deleting…" state after the modal reopens.
@@ -221,11 +223,27 @@ export default function ItemDetailModal({
           {/* ── Photo ──────────────────────────────────────────────────────── */}
           <View className="relative">
             {item.image_url ? (
-              <Image
-                source={{ uri: item.image_url }}
-                style={{ width: "100%", height: 320 }}
-                resizeMode="cover"
-              />
+              <TouchableOpacity
+                activeOpacity={0.9}
+                onPress={() => setZoomUri(item.image_url)}
+                accessibilityRole="imagebutton"
+                accessibilityLabel="View photo full screen"
+              >
+                <Image
+                  source={{ uri: item.image_url }}
+                  style={{ width: "100%", height: 320 }}
+                  resizeMode="cover"
+                />
+                {/* The photo is cropped to fill here, so the affordance needs
+                    to be explicit — nothing else signals it can be opened. */}
+                <View
+                  style={{ position: "absolute", bottom: 12, left: 12 }}
+                  className="bg-black/40 px-2.5 py-1 rounded-full flex-row items-center gap-1"
+                >
+                  <Text className="text-white text-xs">⤢</Text>
+                  <Text className="text-white text-xs font-medium">Tap to zoom</Text>
+                </View>
+              </TouchableOpacity>
             ) : (
               <View
                 style={{ width: "100%", height: 320 }}
@@ -307,6 +325,14 @@ export default function ItemDetailModal({
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Nested inside the detail modal so dismissing the zoom returns here
+          rather than closing the item entirely. */}
+      <ImageZoomModal
+        uri={zoomUri}
+        caption={[item.color, item.category].filter(Boolean).join(" · ")}
+        onClose={() => setZoomUri(null)}
+      />
     </Modal>
   );
 }
