@@ -170,7 +170,7 @@ export default function ImageZoomModal({
           accessibilityLabel="Close photo"
           accessibilityRole="button"
           style={{ position: "absolute", top: 56, right: 20 }}
-          className="bg-white/20 w-10 h-10 rounded-full items-center justify-center"
+          className="bg-surface/20 w-10 h-10 rounded-full items-center justify-center"
         >
           <Text className="text-white text-lg font-semibold">✕</Text>
         </TouchableOpacity>

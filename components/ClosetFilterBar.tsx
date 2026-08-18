@@ -86,20 +86,20 @@ export default function ClosetFilterBar({
           accessibilityLabel={expanded ? "Hide filters" : "Show filters"}
           className={`px-3 py-1.5 rounded-full border flex-row items-center gap-1 ${
             activeCount > 0
-              ? "bg-indigo-600 border-indigo-600"
-              : "bg-white border-gray-200"
+              ? "bg-rust border-rust"
+              : "bg-surface border-edge"
           }`}
         >
           <Text
             className={`text-xs font-semibold ${
-              activeCount > 0 ? "text-white" : "text-gray-600"
+              activeCount > 0 ? "text-ground" : "text-ink-soft"
             }`}
           >
             Filter{activeCount > 0 ? ` (${activeCount})` : ""}
           </Text>
           <Text
             className={`text-[10px] ${
-              activeCount > 0 ? "text-white" : "text-gray-400"
+              activeCount > 0 ? "text-ground" : "text-ink-faint"
             }`}
           >
             {expanded ? "▲" : "▼"}
@@ -109,7 +109,7 @@ export default function ClosetFilterBar({
 
       {/* ── Filter panel ──────────────────────────────────────────────────── */}
       {expanded && (
-        <View className="bg-gray-50 border border-gray-100 rounded-2xl p-3 gap-4">
+        <View className="bg-surface border border-edge rounded p-3 gap-4">
           <FilterGroup
             title="Type"
             values={availableCategories}
@@ -142,9 +142,9 @@ export default function ClosetFilterBar({
           {!filtersAreEmpty(filters) && (
             <TouchableOpacity
               onPress={() => onChangeFilters({ categories: [], colors: [] })}
-              className="self-start px-3 py-1.5 rounded-lg bg-white border border-gray-200"
+              className="self-start px-3 py-1.5 rounded bg-surface border border-edge"
             >
-              <Text className="text-gray-600 text-xs font-semibold">
+              <Text className="text-ink-soft text-xs font-semibold">
                 Clear all filters
               </Text>
             </TouchableOpacity>
@@ -181,11 +181,11 @@ function FilterGroup({
   return (
     <View className="gap-2">
       <View className="flex-row items-baseline gap-2">
-        <Text className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+        <Text className="text-xs font-semibold text-ink-soft uppercase tracking-wide">
           {title}
         </Text>
         {subtitle ? (
-          <Text className="text-[10px] text-gray-400">{subtitle}</Text>
+          <Text className="text-[10px] text-ink-faint">{subtitle}</Text>
         ) : null}
       </View>
       <View className="flex-row flex-wrap gap-2">
@@ -223,8 +223,8 @@ function Chip({
       accessibilityState={{ selected }}
       className={`px-3 py-1.5 rounded-full border flex-row items-center gap-1.5 ${
         selected
-          ? "bg-indigo-600 border-indigo-600"
-          : "bg-white border-gray-200"
+          ? "bg-rust border-rust"
+          : "bg-surface border-edge"
       }`}
     >
       {swatch ? (
@@ -235,7 +235,7 @@ function Chip({
       ) : null}
       <Text
         className={`text-xs font-semibold ${
-          selected ? "text-white" : "text-gray-600"
+          selected ? "text-ground" : "text-ink-soft"
         }`}
       >
         {label}

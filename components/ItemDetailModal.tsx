@@ -238,10 +238,10 @@ export default function ItemDetailModal({
                     to be explicit — nothing else signals it can be opened. */}
                 <View
                   style={{ position: "absolute", bottom: 12, left: 12 }}
-                  className="bg-black/40 px-2.5 py-1 rounded-full flex-row items-center gap-1"
+                  className="bg-ink/40 px-2.5 py-1 rounded-full flex-row items-center gap-1"
                 >
-                  <Text className="text-white text-xs">⤢</Text>
-                  <Text className="text-white text-xs font-medium">Tap to zoom</Text>
+                  <Text className="text-ground text-xs">⤢</Text>
+                  <Text className="text-ground text-xs font-medium">Tap to zoom</Text>
                 </View>
               </TouchableOpacity>
             ) : (
@@ -255,9 +255,9 @@ export default function ItemDetailModal({
             <TouchableOpacity
               onPress={onClose}
               style={{ position: "absolute", top: 12, right: 12 }}
-              className="bg-black/40 w-9 h-9 rounded-full items-center justify-center"
+              className="bg-ink/40 w-9 h-9 rounded-full items-center justify-center"
             >
-              <Text className="text-white text-base font-semibold">✕</Text>
+              <Text className="text-ground text-base font-semibold">✕</Text>
             </TouchableOpacity>
           </View>
 
@@ -426,8 +426,8 @@ function TagEditor({
             saving ? "bg-rust-muted" : "bg-rust"
           }`}
         >
-          {saving && <ActivityIndicator size="small" color="white" />}
-          <Text className="text-white text-sm font-semibold">Save</Text>
+          {saving && <ActivityIndicator size="small" color={colors.ground} />}
+          <Text className="text-ground text-sm font-semibold">Save</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -463,7 +463,7 @@ function EnumPicker({
             >
               <Text
                 className={`text-xs font-medium capitalize ${
-                  selected ? "text-white" : "text-ink-soft"
+                  selected ? "text-ground" : "text-ink-soft"
                 }`}
               >
                 {opt}

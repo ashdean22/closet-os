@@ -305,7 +305,7 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
                 saving ? "bg-rust-muted" : "bg-rust"
               }`}
             >
-              <Text className="text-white text-base font-semibold">Take Picture</Text>
+              <Text className="text-ground text-base font-semibold">Take Picture</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -432,7 +432,7 @@ function DuplicateWarning({ newImageUrl, newTags, match, onKeep, onRemove }: Dup
         onPress={onKeep}
         className="bg-rust py-4 rounded w-full items-center"
       >
-        <Text className="text-white text-base font-semibold">Keep both</Text>
+        <Text className="text-ground text-base font-semibold">Keep both</Text>
       </TouchableOpacity>
 
       <TouchableOpacity

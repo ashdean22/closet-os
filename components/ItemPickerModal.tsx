@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
+import { colors, fonts, tracking } from "../lib/theme";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
@@ -99,17 +100,17 @@ export default function ItemPickerModal({
       <View style={{ flex: 1, backgroundColor: "white" }}>
         {Platform.OS === "ios" && (
           <View className="items-center pt-3 pb-1">
-            <View className="w-9 h-1 rounded-full bg-gray-300" />
+            <View className="w-9 h-1 rounded-full bg-edge" />
           </View>
         )}
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <View className="px-5 pt-3 pb-2 flex-row items-center justify-between">
           <View className="flex-1 pr-3">
-            <Text className="text-xl font-bold text-gray-800">
+            <Text className="text-xl font-bold text-ink">
               Style around a piece
             </Text>
-            <Text className="text-gray-500 text-sm mt-0.5">
+            <Text className="text-ink-soft text-sm mt-0.5">
               Pick one item and the rest of the look is built to match it.
             </Text>
           </View>
@@ -117,9 +118,9 @@ export default function ItemPickerModal({
             onPress={onClose}
             accessibilityRole="button"
             accessibilityLabel="Close"
-            className="bg-gray-100 w-9 h-9 rounded-full items-center justify-center"
+            className="bg-sunken w-9 h-9 rounded-full items-center justify-center"
           >
-            <Text className="text-gray-600 text-base font-semibold">✕</Text>
+            <Text className="text-ink-soft text-base font-semibold">✕</Text>
           </TouchableOpacity>
         </View>
 
@@ -149,16 +150,16 @@ export default function ItemPickerModal({
         {/* ── Grid ───────────────────────────────────────────────────────── */}
         {showSpinner ? (
           <View className="flex-1 items-center justify-center">
-            <ActivityIndicator size="large" color="#4f46e5" />
+            <ActivityIndicator size="large" color={colors.rust} />
           </View>
         ) : error && items.length === 0 ? (
           <View className="flex-1 items-center justify-center px-8 gap-3">
-            <Text className="text-gray-600 text-sm text-center">{error}</Text>
+            <Text className="text-ink-soft text-sm text-center">{error}</Text>
             <TouchableOpacity
               onPress={fetchItems}
-              className="px-4 py-2 rounded-lg bg-gray-100"
+              className="px-4 py-2 rounded bg-sunken"
             >
-              <Text className="text-gray-700 text-sm font-semibold">Retry</Text>
+              <Text className="text-ink text-sm font-semibold">Retry</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -180,7 +181,7 @@ export default function ItemPickerModal({
             ListEmptyComponent={
               <View className="items-center py-24 gap-2">
                 <Text className="text-4xl">👔</Text>
-                <Text className="text-gray-500 text-sm text-center">
+                <Text className="text-ink-soft text-sm text-center">
                   {items.length === 0
                     ? "Add some items to your closet first."
                     : "Nothing in that category yet."}
@@ -192,7 +193,7 @@ export default function ItemPickerModal({
                 style={{ flex: 1 / 3 }}
                 activeOpacity={0.8}
                 onPress={() => onSelect(item)}
-                className="rounded-xl overflow-hidden border border-gray-100 bg-white"
+                className="rounded overflow-hidden border border-edge bg-surface"
               >
                 {item.image_url ? (
                   <Image
@@ -203,20 +204,20 @@ export default function ItemPickerModal({
                 ) : (
                   <View
                     style={{ width: "100%", aspectRatio: 1 }}
-                    className="bg-gray-100 items-center justify-center"
+                    className="bg-sunken items-center justify-center"
                   >
-                    <Text className="text-gray-400 text-[10px]">No photo</Text>
+                    <Text className="text-ink-faint text-[10px]">No photo</Text>
                   </View>
                 )}
                 <View className="px-1.5 py-1.5">
                   <Text
-                    className="text-[11px] font-semibold text-gray-700 capitalize"
+                    className="text-[11px] font-semibold text-ink capitalize"
                     numberOfLines={1}
                   >
                     {item.category ?? "—"}
                   </Text>
                   <Text
-                    className="text-[10px] text-gray-400 capitalize"
+                    className="text-[10px] text-ink-faint capitalize"
                     numberOfLines={1}
                   >
                     {item.color ?? "—"}
@@ -246,12 +247,12 @@ function PickerChip({
       accessibilityRole="button"
       accessibilityState={{ selected }}
       className={`px-3 py-1.5 rounded-full border ${
-        selected ? "bg-indigo-600 border-indigo-600" : "bg-white border-gray-200"
+        selected ? "bg-rust border-rust" : "bg-surface border-edge"
       }`}
     >
       <Text
         className={`text-xs font-semibold ${
-          selected ? "text-white" : "text-gray-600"
+          selected ? "text-ground" : "text-ink-soft"
         }`}
       >
         {label}

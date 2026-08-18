@@ -12,10 +12,12 @@ import {
   Keyboard,
 } from "react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
+import DecoHeader from "../components/DecoHeader";
 import ErrorBoundary from "../components/ErrorBoundary";
 import ImageZoomModal from "../components/ImageZoomModal";
 import ItemPickerModal, { type PickableItem } from "../components/ItemPickerModal";
 import { supabase } from "../lib/supabase";
+import { colors, fonts, tracking } from "../lib/theme";
 import { readFunctionError } from "../lib/functionErrors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -242,7 +244,7 @@ export default function OutfitScreen() {
           contentContainerStyle={{ padding: 20, gap: 20 }}
         >
           {/* ── Header ─────────────────────────────────────────────────── */}
-          <Text className="text-2xl font-bold text-gray-800">Find an Outfit</Text>
+          <DecoHeader title="Find an Outfit" />
 
           {/* ── Anchor piece ───────────────────────────────────────────── */}
           <AnchorRow
@@ -262,7 +264,7 @@ export default function OutfitScreen() {
                   ? "Add an occasion (optional)"
                   : "e.g. outfit for a 65° rainy interview"
               }
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={colors.inkFaint}
               returnKeyType="search"
               onSubmitEditing={handleFind}
               multiline={false}
@@ -270,26 +272,30 @@ export default function OutfitScreen() {
               // includeFontPadding collapsing the NativeWind py-* height.
               style={{
                 borderWidth: 1,
-                borderColor: "#d1d5db",
-                borderRadius: 12,
+                borderColor: colors.edge,
+                borderRadius: 4,
                 paddingHorizontal: 16,
                 paddingVertical: 14,
                 fontSize: 16,
-                color: "#1f2937",
-                backgroundColor: "#f9fafb",
+                color: colors.ink,
+                backgroundColor: colors.surface,
               }}
             />
             <TouchableOpacity
               onPress={handleFind}
               disabled={!canSearch || loading}
-              className={`py-4 rounded-xl items-center flex-row justify-center gap-2 ${
-                canSearch && !loading ? "bg-indigo-600" : "bg-gray-300"
+              className={`py-4 rounded items-center flex-row justify-center gap-2 ${
+                canSearch && !loading ? "bg-rust" : "bg-sunken"
               }`}
             >
               {/* No spinner here on purpose — the results area below already
                   shows one, and two animations for a single wait read as two
                   things happening. The label carries the state instead. */}
-              <Text className="text-white text-base font-semibold">
+              <Text
+                className={`text-base font-semibold ${
+                  canSearch && !loading ? "text-ground" : "text-ink-faint"
+                }`}
+              >
                 {loading ? "Styling…" : "Find My Outfit"}
               </Text>
             </TouchableOpacity>
@@ -297,16 +303,16 @@ export default function OutfitScreen() {
 
           {/* ── Error ──────────────────────────────────────────────────── */}
           {error && (
-            <View className="bg-red-50 border border-red-200 rounded-xl p-4 gap-3">
-              <Text className="text-red-700 text-sm font-semibold">
+            <View className="bg-danger-tint border border-danger-edge rounded p-4 gap-3">
+              <Text className="text-danger text-sm font-semibold">
                 Couldn't find an outfit
               </Text>
-              <Text className="text-red-600 text-sm leading-5">{error}</Text>
+              <Text className="text-danger text-sm leading-5">{error}</Text>
               <TouchableOpacity
                 onPress={handleFind}
-                className="self-start bg-red-100 px-4 py-2 rounded-lg"
+                className="self-start bg-danger-tint px-4 py-2 rounded"
               >
-                <Text className="text-red-700 text-sm font-semibold">Try again</Text>
+                <Text className="text-danger text-sm font-semibold">Try again</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -314,8 +320,8 @@ export default function OutfitScreen() {
           {/* ── Loading state ──────────────────────────────────────────── */}
           {loading && (
             <View className="items-center py-16 gap-4">
-              <ActivityIndicator size="large" color="#4f46e5" />
-              <Text className="text-gray-600 text-base font-medium">
+              <ActivityIndicator size="large" color={colors.rust} />
+              <Text className="text-ink-soft text-base font-medium">
                 Finding your outfits…
               </Text>
             </View>
@@ -324,8 +330,9 @@ export default function OutfitScreen() {
           {/* ── Empty / prompt state ────────────────────────────────────── */}
           {!loading && !result && !error && (
             <View className="items-center py-16 gap-3">
-              <Text className="text-4xl">✦</Text>
-              <Text className="text-gray-500 text-base text-center">
+              {/* Brass marks the AI moments throughout the app. */}
+              <Text style={{ fontSize: 36, color: colors.brass }}>{"\u2726\uFE0E"}</Text>
+              <Text className="text-ink-soft text-base text-center">
                 Describe the occasion, weather, or vibe — or pin a piece you want
                 to wear — and Claude will build a few looks from your closet.
               </Text>
@@ -351,13 +358,13 @@ export default function OutfitScreen() {
               its own explanation — "your closet is empty" and "nothing left
               after those refreshes" are different problems. */}
           {result && !current && !loading && (
-            <View className="bg-amber-50 border border-amber-200 rounded-xl p-4 gap-1">
-              <Text className="text-amber-800 text-sm font-semibold">
+            <View className="bg-notice-tint border border-notice-edge rounded p-4 gap-1">
+              <Text className="text-notice text-sm font-semibold">
                 {closetIsEmpty(result.message)
                   ? "Your closet is empty"
                   : "No outfits to show"}
               </Text>
-              <Text className="text-amber-700 text-sm leading-5">
+              <Text className="text-chip-brass-ink text-sm leading-5">
                 {closetIsEmpty(result.message)
                   ? "Add and save some items first — the AI needs photos to work with."
                   : result.message ||
@@ -405,14 +412,14 @@ function AnchorRow({
     return (
       <TouchableOpacity
         onPress={onPick}
-        className="flex-row items-center gap-3 border border-dashed border-gray-300 rounded-2xl px-4 py-3"
+        className="flex-row items-center gap-3 border border-dashed border-edge rounded px-4 py-3"
       >
-        <Text className="text-lg text-gray-400">＋</Text>
+        <Text className="text-lg text-ink-faint">＋</Text>
         <View className="flex-1">
-          <Text className="text-gray-700 text-sm font-semibold">
+          <Text className="text-ink text-sm font-semibold">
             Style around a piece
           </Text>
-          <Text className="text-gray-400 text-xs">
+          <Text className="text-ink-faint text-xs">
             Pick a shirt, trousers, anything — the look is built to match it
           </Text>
         </View>
@@ -421,27 +428,27 @@ function AnchorRow({
   }
 
   return (
-    <View className="flex-row items-center gap-3 bg-indigo-50 border border-indigo-100 rounded-2xl p-2.5">
+    <View className="flex-row items-center gap-3 bg-rust-tint border border-rust-muted rounded p-2.5">
       {anchor.image_url ? (
         <Image
           source={{ uri: anchor.image_url }}
-          style={{ width: 48, height: 48, borderRadius: 10 }}
+          style={{ width: 48, height: 48, borderRadius: 4 }}
           resizeMode="cover"
         />
       ) : (
         <View
-          style={{ width: 48, height: 48, borderRadius: 10 }}
-          className="bg-indigo-100 items-center justify-center"
+          style={{ width: 48, height: 48, borderRadius: 4 }}
+          className="bg-chip-teal items-center justify-center"
         >
-          <Text className="text-indigo-400 text-[10px]">No photo</Text>
+          <Text className="text-rust-muted text-[10px]">No photo</Text>
         </View>
       )}
       <View className="flex-1">
-        <Text className="text-indigo-500 text-[10px] font-semibold uppercase tracking-wide">
+        <Text className="text-rust text-[10px] font-semibold uppercase tracking-wide">
           Building around
         </Text>
         <Text
-          className="text-indigo-900 text-sm font-medium capitalize"
+          className="text-rust-deep text-sm font-medium capitalize"
           numberOfLines={1}
         >
           {[anchor.color, anchor.category].filter(Boolean).join(" ") || "Selected item"}
@@ -449,17 +456,17 @@ function AnchorRow({
       </View>
       <TouchableOpacity
         onPress={onPick}
-        className="px-2.5 py-1.5 rounded-lg bg-white border border-indigo-100"
+        className="px-2.5 py-1.5 rounded bg-surface border border-rust-muted"
       >
-        <Text className="text-indigo-600 text-xs font-semibold">Change</Text>
+        <Text className="text-rust text-xs font-semibold">Change</Text>
       </TouchableOpacity>
       <TouchableOpacity
         onPress={onClear}
         accessibilityRole="button"
         accessibilityLabel="Remove pinned piece"
-        className="w-7 h-7 rounded-full bg-white border border-indigo-100 items-center justify-center"
+        className="w-7 h-7 rounded-full bg-surface border border-rust-muted items-center justify-center"
       >
-        <Text className="text-indigo-500 text-xs font-semibold">✕</Text>
+        <Text className="text-rust text-xs font-semibold">✕</Text>
       </TouchableOpacity>
     </View>
   );
@@ -509,7 +516,7 @@ function OutfitResults({
             disabled={index === 0}
             onPress={() => onSelectIndex(index - 1)}
           />
-          <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wide">
+          <Text className="text-ink-soft text-xs font-semibold uppercase tracking-wide">
             Look {index + 1} of {total}
           </Text>
           <StepArrow
@@ -522,27 +529,27 @@ function OutfitResults({
       )}
 
       {/* Rationale banner */}
-      <View className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4">
-        <Text className="text-indigo-500 text-xs font-semibold uppercase tracking-wide mb-1">
+      <View className="bg-rust-tint border border-rust-muted rounded p-4">
+        <Text className="text-rust text-xs font-semibold uppercase tracking-wide mb-1">
           {variation.name || "Styled for"}
         </Text>
         {query ? (
-          <Text className="text-indigo-900 text-sm font-medium italic leading-5">
+          <Text className="text-rust-deep text-sm font-medium italic leading-5">
             "{query}"
           </Text>
         ) : null}
-        <Text className="text-indigo-800 text-sm leading-5 mt-2">{rationale}</Text>
+        <Text className="text-rust-deep text-sm leading-5 mt-2">{rationale}</Text>
       </View>
 
       {/* Outfit pieces */}
       {outfit.length === 0 ? (
-        <View className="bg-amber-50 border border-amber-200 rounded-xl p-4 gap-1">
-          <Text className="text-amber-800 text-sm font-semibold">
+        <View className="bg-notice-tint border border-notice-edge rounded p-4 gap-1">
+          <Text className="text-notice text-sm font-semibold">
             {closetIsEmpty(rationale)
               ? "Your closet is empty"
               : "No matching items found"}
           </Text>
-          <Text className="text-amber-700 text-sm leading-5">
+          <Text className="text-chip-brass-ink text-sm leading-5">
             {closetIsEmpty(rationale)
               ? "Add and save some items first — the AI needs photos to work with."
               : "Try rephrasing your query, or add more variety to your closet."}
@@ -565,23 +572,23 @@ function OutfitResults({
         <TouchableOpacity
           onPress={onRefresh}
           disabled={refreshing}
-          className={`py-3.5 rounded-xl items-center flex-row justify-center gap-2 border ${
+          className={`py-3.5 rounded items-center flex-row justify-center gap-2 border ${
             refreshing
-              ? "bg-gray-100 border-gray-200"
-              : "bg-white border-indigo-200"
+              ? "bg-sunken border-edge"
+              : "bg-surface border-rust-muted"
           }`}
         >
           {refreshing ? (
             <>
-              <ActivityIndicator size="small" color="#4f46e5" />
-              <Text className="text-gray-500 text-sm font-semibold">
+              <ActivityIndicator size="small" color={colors.rust} />
+              <Text className="text-ink-soft text-sm font-semibold">
                 Styling more looks…
               </Text>
             </>
           ) : (
             <>
-              <Text className="text-indigo-600 text-sm">↻</Text>
-              <Text className="text-indigo-600 text-sm font-semibold">
+              <Text className="text-rust text-sm">↻</Text>
+              <Text className="text-rust text-sm font-semibold">
                 {/* Say which refreshes are instant so it's clear when a tap
                     costs a request against the daily limit. */}
                 {hasUnseen ? "Show me the next look" : "Style something new"}
@@ -593,14 +600,14 @@ function OutfitResults({
 
       {/* Missing items */}
       {missing.length > 0 && (
-        <View className="bg-amber-50 border border-amber-200 rounded-2xl p-4 gap-2">
-          <Text className="text-amber-700 text-xs font-semibold uppercase tracking-wide">
+        <View className="bg-notice-tint border border-notice-edge rounded p-4 gap-2">
+          <Text className="text-chip-brass-ink text-xs font-semibold uppercase tracking-wide">
             Not in this look
           </Text>
           {missing.map((m, i) => (
             <View key={i} className="flex-row items-start gap-2">
-              <Text className="text-amber-500">•</Text>
-              <Text className="text-amber-800 text-sm leading-5 flex-1">
+              <Text className="text-notice">•</Text>
+              <Text className="text-notice text-sm leading-5 flex-1">
                 <Text className="capitalize font-medium">{m.role}</Text>
                 {m.reason === "not_owned"
                   ? " — you haven't added any to your closet yet"
@@ -634,7 +641,7 @@ function StepArrow({
   onPress: () => void;
 }) {
   const side = CHEVRON_SIDES[direction];
-  const color = disabled ? "#d1d5db" : "#4f46e5";
+  const color = disabled ? colors.edge : colors.rust;
 
   return (
     <TouchableOpacity
@@ -646,7 +653,7 @@ function StepArrow({
       // Generous hit area — the mark itself is deliberately small and quiet.
       hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
       className={`rounded-full border items-center justify-center ${
-        disabled ? "border-gray-100" : "border-gray-200"
+        disabled ? "border-edge" : "border-edge"
       }`}
       style={{ width: 32, height: 32 }}
     >
@@ -703,8 +710,8 @@ function OutfitCard({
 
   return (
     <View
-      className={`flex-row bg-white border rounded-2xl overflow-hidden ${
-        piece?.is_anchor ? "border-indigo-200" : "border-gray-100"
+      className={`flex-row bg-surface border rounded overflow-hidden ${
+        piece?.is_anchor ? "border-rust-muted" : "border-edge"
       }`}
     >
       {/* Thumbnail — tap to open full screen and zoom */}
@@ -722,17 +729,17 @@ function OutfitCard({
           />
           <View
             style={{ position: "absolute", bottom: 4, right: 4 }}
-            className="bg-black/45 w-5 h-5 rounded-full items-center justify-center"
+            className="bg-ink/45 w-5 h-5 rounded-full items-center justify-center"
           >
-            <Text className="text-white text-[10px]">⤢</Text>
+            <Text className="text-ground text-[10px]">⤢</Text>
           </View>
         </TouchableOpacity>
       ) : (
         <View
           style={{ width: 88, height: 88 }}
-          className="bg-gray-100 items-center justify-center"
+          className="bg-sunken items-center justify-center"
         >
-          <Text className="text-gray-400 text-xs">No photo</Text>
+          <Text className="text-ink-faint text-xs">No photo</Text>
         </View>
       )}
 
@@ -746,13 +753,13 @@ function OutfitCard({
             </Text>
           </View>
           {piece?.is_anchor && (
-            <View className="px-2 py-0.5 rounded-full bg-indigo-600">
-              <Text className="text-white text-xs font-semibold">Your pick</Text>
+            <View className="px-2 py-0.5 rounded-full bg-rust">
+              <Text className="text-ground text-xs font-semibold">Your pick</Text>
             </View>
           )}
           {item?.color ? (
             <Text
-              className="text-gray-400 text-xs capitalize flex-1"
+              className="text-ink-faint text-xs capitalize flex-1"
               numberOfLines={1}
             >
               {item.color}
@@ -773,7 +780,7 @@ function OutfitCard({
           }
         >
           <Text
-            className="text-gray-700 text-sm leading-5"
+            className="text-ink text-sm leading-5"
             numberOfLines={expanded ? undefined : REASON_LINES}
             onTextLayout={(e) => {
               if (!expanded && e.nativeEvent.lines.length >= REASON_LINES) {
@@ -784,7 +791,7 @@ function OutfitCard({
             {reason}
           </Text>
           {clipped && (
-            <Text className="text-indigo-600 text-xs font-semibold mt-0.5">
+            <Text className="text-rust text-xs font-semibold mt-0.5">
               {expanded ? "Less" : "More"}
             </Text>
           )}
@@ -894,12 +901,12 @@ function closetIsEmpty(rationale: string): boolean {
 
 function rolePillStyle(role: string): { bg: string; text: string } {
   const map: Record<string, { bg: string; text: string }> = {
-    top:       { bg: "bg-indigo-100", text: "text-indigo-700"  },
-    bottom:    { bg: "bg-sky-100",    text: "text-sky-700"     },
-    outerwear: { bg: "bg-slate-100",  text: "text-slate-700"   },
-    shoes:     { bg: "bg-rose-100",   text: "text-rose-700"    },
-    accessory: { bg: "bg-amber-100",  text: "text-amber-700"   },
-    dress:     { bg: "bg-violet-100", text: "text-violet-700"  },
+    top:       { bg: "bg-chip-teal", text: "text-chip-teal-ink"  },
+    bottom:    { bg: "bg-chip-sky",    text: "text-chip-sky-ink"     },
+    outerwear: { bg: "bg-sunken",  text: "text-ink"   },
+    shoes:     { bg: "bg-chip-rust",   text: "text-chip-rust-ink"    },
+    accessory: { bg: "bg-chip-brass",  text: "text-chip-brass-ink"   },
+    dress:     { bg: "bg-chip-plum", text: "text-chip-plum-ink"  },
   };
-  return map[role] ?? { bg: "bg-gray-100", text: "text-gray-700" };
+  return map[role] ?? { bg: "bg-sunken", text: "text-ink" };
 }

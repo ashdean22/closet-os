@@ -54,7 +54,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
           onPress={this.reset}
           className="bg-rust px-6 py-3 rounded mt-2"
         >
-          <Text className="text-white text-base font-semibold">Try again</Text>
+          <Text className="text-ground text-base font-semibold">Try again</Text>
         </TouchableOpacity>
       </View>
     );
