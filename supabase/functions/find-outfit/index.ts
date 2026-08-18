@@ -54,13 +54,12 @@ const CORE_ROLES: Role[] = ["top", "bottom", "shoes"];
 /**
  * Hard ceiling on candidates sent to Claude — bounds prompt tokens and cost.
  *
- * Raised from 32: candidates are the one part of the prompt that is NOT
- * cached (they change every request), so each extra item is paid in full at
- * roughly 120 tokens. 40 buys meaningfully more of the wardrobe for about a
- * third of a cent per search, which is the right trade when the complaint is
- * that the outfits feel samey.
+ * Candidates are the one part of the prompt that is NOT cached (they change
+ * every request), so each extra item is paid in full at roughly 160 tokens.
+ * This is the real budget guard: per_category below is set generously and
+ * capCandidates trims against this number, rather than the other way round.
  */
-const MAX_CANDIDATES = 40;
+const MAX_CANDIDATES = 48;
 
 /** More than 3 looks per call stops being useful and just burns tokens. */
 const MAX_VARIATIONS = 3;
@@ -267,11 +266,14 @@ Deno.serve(async (req: Request) => {
     // per_category guarantees the candidate set has options for every slot the
     // closet can fill — a flat top-N could return ten shirts and no shoes,
     // which made a complete outfit impossible regardless of prompting.
-    // 8 per slot, not 5: three genuinely different looks need three genuinely
-    // different tops, and picking those from a five-deep shortlist forces
-    // near-repeats. capCandidates trims the lowest-ranked from the biggest
-    // categories if this overflows MAX_CANDIDATES, so breadth is preserved.
-    const perCategory = variations > 1 ? 8 : 4;
+    // Deliberately generous. Wardrobes are lopsided — the owner's has 27 tops
+    // against 6 bottoms — so a small per-slot limit starves exactly the
+    // category with the most to choose from while the others return
+    // everything they have anyway. At 8 the stylist was seeing 8 of 27 tops
+    // and three "different" looks were drawn from the same shortlist.
+    // MAX_CANDIDATES is the real ceiling; capCandidates trims the
+    // lowest-ranked from the biggest categories if this overflows it.
+    const perCategory = variations > 1 ? 20 : 6;
     const excludeIds = [...new Set([...excludeItemIds, ...(anchor ? [anchor.id] : [])])];
 
     const { data: items, error: rpcError } = await supabase.rpc(
