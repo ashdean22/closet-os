@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import {
 } from "react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import ErrorBoundary from "../components/ErrorBoundary";
+import ImageZoomModal from "../components/ImageZoomModal";
+import ItemPickerModal, { type PickableItem } from "../components/ItemPickerModal";
 import { supabase } from "../lib/supabase";
 import { readFunctionError } from "../lib/functionErrors";
 
@@ -23,6 +25,7 @@ type ItemDetail = {
   image_url: string | null;
   category: string | null;
   color: string | null;
+  secondary_color: string | null;
   formality: string | null;
   season: string | null;
   material: string | null;
@@ -34,13 +37,32 @@ type OutfitPiece = {
   role: string;
   reason: string;
   item: ItemDetail | null;
+  is_anchor: boolean;
+};
+
+type MissingDetail = {
+  role: string;
+  reason: "no_match" | "not_owned";
+};
+
+type Variation = {
+  name: string;
+  outfit: OutfitPiece[];
+  rationale: string;
+  missing: string[];
+  missing_detail: MissingDetail[];
 };
 
 type OutfitResult = {
   query: string;
-  outfit: OutfitPiece[];
-  rationale: string;
-  missing: string[];
+  anchor: ItemDetail | null;
+  variations: Variation[];
+  /**
+   * Server-supplied explanation used when `variations` is empty — an empty
+   * closet and an over-filtered refresh are both "no looks", but they need
+   * different words.
+   */
+  message: string;
 };
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -48,9 +70,17 @@ type OutfitResult = {
 export default function OutfitScreen() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  // Separate from `loading` so refreshing keeps the current look on screen
+  // instead of blanking to the full-page spinner.
+  const [refreshing, setRefreshing] = useState(false);
   const [result, setResult] = useState<OutfitResult | null>(null);
+  const [index, setIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [anchor, setAnchor] = useState<PickableItem | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [zoom, setZoom] = useState<{ uri: string; caption: string } | null>(null);
   const inputRef = useRef<TextInput>(null);
+
   // Guards against setState after unmount (suspect #3). The screen normally
   // stays mounted across tab switches, but this keeps the async path safe.
   const mounted = useRef(true);
@@ -61,58 +91,143 @@ export default function OutfitScreen() {
     };
   }, []);
 
-  const handleFind = async () => {
-    if (!query.trim()) return;
-    Keyboard.dismiss();
-    setLoading(true);
-    setResult(null);
-    setError(null);
+  const canSearch = query.trim().length > 0 || anchor !== null;
 
-    try {
-      const { data, error: fnError } = await supabase.functions.invoke<unknown>(
-        "find-outfit",
-        { body: { query: query.trim() } },
-      );
+  /**
+   * One request path for the first search and for "give me more looks".
+   *
+   * `excludeItemIds` is how a server-side refresh gets a genuinely different
+   * batch. It carries only the pieces from the batch the user just rejected,
+   * not everything ever shown — excluding the full history would starve
+   * retrieval in a small wardrobe after two or three refreshes.
+   */
+  const fetchOutfits = useCallback(
+    async ({
+      append = false,
+      excludeItemIds = [],
+    }: { append?: boolean; excludeItemIds?: string[] } = {}) => {
+      if (!append) {
+        Keyboard.dismiss();
+        setLoading(true);
+        setResult(null);
+        setIndex(0);
+      } else {
+        setRefreshing(true);
+      }
+      setError(null);
 
-      if (fnError) {
-        // Unwrap the real status + reason from the response body — the raw
-        // error is just "non-2xx status code". daily_limit (429) gets its own
-        // honest message instead of a generic failure.
-        const detail = await readFunctionError(fnError);
-        console.error(
-          "[find-outfit] failed:",
-          detail.status ?? "(no status)",
-          detail.reason ?? "(no reason)",
-          detail.message,
-        );
-        if (detail.reason === "daily_limit") {
-          throw new Error("daily_limit");
+      try {
+        const invoke = (exclude: string[]) =>
+          supabase.functions.invoke<unknown>("find-outfit", {
+            body: {
+              query: query.trim(),
+              anchor_item_id: anchor?.id ?? null,
+              exclude_item_ids: exclude,
+              variations: 3,
+            },
+          });
+
+        let { data, error: fnError } = await invoke(excludeItemIds);
+
+        if (fnError) {
+          // Unwrap the real status + reason from the response body — the raw
+          // error is just "non-2xx status code". daily_limit (429) gets its own
+          // honest message instead of a generic failure.
+          const detail = await readFunctionError(fnError);
+          console.error(
+            "[find-outfit] failed:",
+            detail.status ?? "(no status)",
+            detail.reason ?? "(no reason)",
+            detail.message,
+          );
+          if (detail.reason === "daily_limit") throw new Error("daily_limit");
+          if (detail.reason === "anchor_not_found") throw new Error("anchor_not_found");
+          throw new Error(detail.message);
         }
-        throw new Error(detail.message);
-      }
-      if (!data) throw new Error("find-outfit returned no data");
+        if (!data) throw new Error("find-outfit returned no data");
 
-      // The function can return HTTP 200 with an error body or a drifted shape;
-      // invoke() only routes non-2xx to `fnError`, so we validate here. This is
-      // the primary defense — a malformed body becomes a friendly error state
-      // instead of a render crash (TypeError on .length/.map).
-      const normalized = normalizeOutfitResult(data);
-      if (!normalized) {
-        const serverError =
-          typeof data === "object" && data !== null && "error" in data
-            ? String((data as { error: unknown }).error)
-            : "Unexpected response from the server.";
-        throw new Error(serverError);
-      }
+        // The function can return HTTP 200 with an error body or a drifted shape;
+        // invoke() only routes non-2xx to `fnError`, so we validate here. This is
+        // the primary defense — a malformed body becomes a friendly error state
+        // instead of a render crash (TypeError on .length/.map).
+        let normalized = normalizeOutfitResult(data);
+        if (!normalized) {
+          const serverError =
+            typeof data === "object" && data !== null && "error" in data
+              ? String((data as { error: unknown }).error)
+              : "Unexpected response from the server.";
+          throw new Error(serverError);
+        }
 
-      if (mounted.current) setResult(normalized);
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err);
-      if (mounted.current) setError(friendlyOutfitError(raw));
-    } finally {
-      if (mounted.current) setLoading(false);
+        // Exclusions can empty the candidate pool in a small closet. Rather
+        // than dead-end the refresh, ask once more with no exclusions — a
+        // repeated look beats "nothing left".
+        if (normalized.variations.length === 0 && excludeItemIds.length > 0) {
+          const retry = await invoke([]);
+          if (!retry.error && retry.data) {
+            normalized = normalizeOutfitResult(retry.data) ?? normalized;
+          }
+        }
+
+        if (!mounted.current) return;
+
+        if (append && result) {
+          const merged = [...result.variations, ...normalized.variations];
+          setResult({ ...normalized, variations: merged });
+          // Jump to the first newly-fetched look, or stay put if none came back.
+          setIndex(
+            normalized.variations.length > 0
+              ? result.variations.length
+              : Math.min(index, merged.length - 1),
+          );
+        } else {
+          setResult(normalized);
+          setIndex(0);
+        }
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err);
+        if (mounted.current) setError(friendlyOutfitError(raw));
+      } finally {
+        if (mounted.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [anchor, index, query, result],
+  );
+
+  const handleFind = useCallback(() => {
+    if (!canSearch) return;
+    fetchOutfits();
+  }, [canSearch, fetchOutfits]);
+
+  /**
+   * Refresh is free while unseen looks remain in the batch — the server already
+   * returned three, so swapping between them costs nothing and doesn't spend a
+   * request against the daily outfit cap. Only an exhausted batch hits the API.
+   */
+  const handleRefresh = useCallback(() => {
+    if (!result || refreshing) return;
+
+    if (index < result.variations.length - 1) {
+      setIndex((i) => i + 1);
+      return;
     }
-  };
+
+    const lastBatch = result.variations.slice(-3);
+    const exclude = [
+      ...new Set(
+        lastBatch.flatMap((v) =>
+          v.outfit.filter((p) => !p.is_anchor).map((p) => p.item_id),
+        ),
+      ),
+    ];
+    fetchOutfits({ append: true, excludeItemIds: exclude });
+  }, [fetchOutfits, index, refreshing, result]);
+
+  const current = result?.variations[index] ?? null;
+  const hasUnseen = result ? index < result.variations.length - 1 : false;
 
   return (
     <ErrorBoundary label="Outfit">
@@ -129,13 +244,24 @@ export default function OutfitScreen() {
           {/* ── Header ─────────────────────────────────────────────────── */}
           <Text className="text-2xl font-bold text-gray-800">Find an Outfit</Text>
 
+          {/* ── Anchor piece ───────────────────────────────────────────── */}
+          <AnchorRow
+            anchor={anchor}
+            onPick={() => setPickerOpen(true)}
+            onClear={() => setAnchor(null)}
+          />
+
           {/* ── Query input ────────────────────────────────────────────── */}
           <View className="gap-3">
             <TextInput
               ref={inputRef}
               value={query}
               onChangeText={setQuery}
-              placeholder="e.g. outfit for a 65° rainy interview"
+              placeholder={
+                anchor
+                  ? "Add an occasion (optional)"
+                  : "e.g. outfit for a 65° rainy interview"
+              }
               placeholderTextColor="#9ca3af"
               returnKeyType="search"
               onSubmitEditing={handleFind}
@@ -155,23 +281,17 @@ export default function OutfitScreen() {
             />
             <TouchableOpacity
               onPress={handleFind}
-              disabled={!query.trim() || loading}
+              disabled={!canSearch || loading}
               className={`py-4 rounded-xl items-center flex-row justify-center gap-2 ${
-                query.trim() && !loading ? "bg-indigo-600" : "bg-gray-300"
+                canSearch && !loading ? "bg-indigo-600" : "bg-gray-300"
               }`}
             >
-              {loading ? (
-                <>
-                  <ActivityIndicator size="small" color="white" />
-                  <Text className="text-white text-base font-semibold">
-                    Styling…
-                  </Text>
-                </>
-              ) : (
-                <Text className="text-white text-base font-semibold">
-                  Find My Outfit
-                </Text>
-              )}
+              {/* No spinner here on purpose — the results area below already
+                  shows one, and two animations for a single wait read as two
+                  things happening. The label carries the state instead. */}
+              <Text className="text-white text-base font-semibold">
+                {loading ? "Styling…" : "Find My Outfit"}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -196,10 +316,7 @@ export default function OutfitScreen() {
             <View className="items-center py-16 gap-4">
               <ActivityIndicator size="large" color="#4f46e5" />
               <Text className="text-gray-600 text-base font-medium">
-                Finding your outfit…
-              </Text>
-              <Text className="text-gray-400 text-xs">
-                Embedding query · searching closet · styling with Claude
+                Finding your outfits…
               </Text>
             </View>
           )}
@@ -209,44 +326,212 @@ export default function OutfitScreen() {
             <View className="items-center py-16 gap-3">
               <Text className="text-4xl">✦</Text>
               <Text className="text-gray-500 text-base text-center">
-                Describe the occasion, weather, or vibe and Claude will build an outfit from your closet.
+                Describe the occasion, weather, or vibe — or pin a piece you want
+                to wear — and Claude will build a few looks from your closet.
               </Text>
             </View>
           )}
 
           {/* ── Results ────────────────────────────────────────────────── */}
-          {result && <OutfitResults result={result} />}
+          {result && current && (
+            <OutfitResults
+              query={result.query}
+              variation={current}
+              index={index}
+              total={result.variations.length}
+              refreshing={refreshing}
+              hasUnseen={hasUnseen}
+              onSelectIndex={setIndex}
+              onRefresh={handleRefresh}
+              onZoom={setZoom}
+            />
+          )}
+
+          {/* Server returned a valid response with no buildable looks. Prefer
+              its own explanation — "your closet is empty" and "nothing left
+              after those refreshes" are different problems. */}
+          {result && !current && !loading && (
+            <View className="bg-amber-50 border border-amber-200 rounded-xl p-4 gap-1">
+              <Text className="text-amber-800 text-sm font-semibold">
+                {closetIsEmpty(result.message)
+                  ? "Your closet is empty"
+                  : "No outfits to show"}
+              </Text>
+              <Text className="text-amber-700 text-sm leading-5">
+                {closetIsEmpty(result.message)
+                  ? "Add and save some items first — the AI needs photos to work with."
+                  : result.message ||
+                    "Try rephrasing your search, or add more variety to your closet."}
+              </Text>
+            </View>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ItemPickerModal
+        visible={pickerOpen}
+        onSelect={(item) => {
+          setAnchor(item);
+          setPickerOpen(false);
+          // Clear stale results — they were styled without this piece pinned.
+          setResult(null);
+          setIndex(0);
+        }}
+        onClose={() => setPickerOpen(false)}
+      />
+
+      <ImageZoomModal
+        uri={zoom?.uri ?? null}
+        caption={zoom?.caption}
+        onClose={() => setZoom(null)}
+      />
     </ScreenWrapper>
     </ErrorBoundary>
   );
 }
 
+// ── AnchorRow ─────────────────────────────────────────────────────────────────
+
+function AnchorRow({
+  anchor,
+  onPick,
+  onClear,
+}: {
+  anchor: PickableItem | null;
+  onPick: () => void;
+  onClear: () => void;
+}) {
+  if (!anchor) {
+    return (
+      <TouchableOpacity
+        onPress={onPick}
+        className="flex-row items-center gap-3 border border-dashed border-gray-300 rounded-2xl px-4 py-3"
+      >
+        <Text className="text-lg text-gray-400">＋</Text>
+        <View className="flex-1">
+          <Text className="text-gray-700 text-sm font-semibold">
+            Style around a piece
+          </Text>
+          <Text className="text-gray-400 text-xs">
+            Pick a shirt, trousers, anything — the look is built to match it
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <View className="flex-row items-center gap-3 bg-indigo-50 border border-indigo-100 rounded-2xl p-2.5">
+      {anchor.image_url ? (
+        <Image
+          source={{ uri: anchor.image_url }}
+          style={{ width: 48, height: 48, borderRadius: 10 }}
+          resizeMode="cover"
+        />
+      ) : (
+        <View
+          style={{ width: 48, height: 48, borderRadius: 10 }}
+          className="bg-indigo-100 items-center justify-center"
+        >
+          <Text className="text-indigo-400 text-[10px]">No photo</Text>
+        </View>
+      )}
+      <View className="flex-1">
+        <Text className="text-indigo-500 text-[10px] font-semibold uppercase tracking-wide">
+          Building around
+        </Text>
+        <Text
+          className="text-indigo-900 text-sm font-medium capitalize"
+          numberOfLines={1}
+        >
+          {[anchor.color, anchor.category].filter(Boolean).join(" ") || "Selected item"}
+        </Text>
+      </View>
+      <TouchableOpacity
+        onPress={onPick}
+        className="px-2.5 py-1.5 rounded-lg bg-white border border-indigo-100"
+      >
+        <Text className="text-indigo-600 text-xs font-semibold">Change</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={onClear}
+        accessibilityRole="button"
+        accessibilityLabel="Remove pinned piece"
+        className="w-7 h-7 rounded-full bg-white border border-indigo-100 items-center justify-center"
+      >
+        <Text className="text-indigo-500 text-xs font-semibold">✕</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // ── OutfitResults ─────────────────────────────────────────────────────────────
 
-function OutfitResults({ result }: { result: OutfitResult }) {
+function OutfitResults({
+  query,
+  variation,
+  index,
+  total,
+  refreshing,
+  hasUnseen,
+  onSelectIndex,
+  onRefresh,
+  onZoom,
+}: {
+  query: string;
+  variation: Variation;
+  index: number;
+  total: number;
+  refreshing: boolean;
+  hasUnseen: boolean;
+  onSelectIndex: (i: number) => void;
+  onRefresh: () => void;
+  onZoom: (z: { uri: string; caption: string }) => void;
+}) {
   // Defensive defaults: even though normalizeOutfitResult guarantees arrays,
   // guard again here so a future shape change can never throw during render.
-  const outfit = Array.isArray(result.outfit) ? result.outfit : [];
-  const missing = Array.isArray(result.missing) ? result.missing : [];
-  const rationale = result.rationale ?? "Here's a look from your closet.";
+  const outfit = Array.isArray(variation.outfit) ? variation.outfit : [];
+  const missing = Array.isArray(variation.missing_detail)
+    ? variation.missing_detail
+    : [];
+  const rationale = variation.rationale || "Here's a look from your closet.";
 
   return (
     <View className="gap-4">
+      {/* ── Look selector ────────────────────────────────────────────────── */}
+      {total > 1 && (
+        // Arrows rather than dots: with a variable number of looks, dots said
+        // how many there were but not that you could move between them.
+        <View className="flex-row items-center justify-center gap-4">
+          <StepArrow
+            direction="left"
+            label="Previous look"
+            disabled={index === 0}
+            onPress={() => onSelectIndex(index - 1)}
+          />
+          <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wide">
+            Look {index + 1} of {total}
+          </Text>
+          <StepArrow
+            direction="right"
+            label="Next look"
+            disabled={index >= total - 1}
+            onPress={() => onSelectIndex(index + 1)}
+          />
+        </View>
+      )}
+
       {/* Rationale banner */}
       <View className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4">
         <Text className="text-indigo-500 text-xs font-semibold uppercase tracking-wide mb-1">
-          Styled for
+          {variation.name || "Styled for"}
         </Text>
-        {result.query ? (
+        {query ? (
           <Text className="text-indigo-900 text-sm font-medium italic leading-5">
-            "{result.query}"
+            "{query}"
           </Text>
         ) : null}
-        <Text className="text-indigo-800 text-sm leading-5 mt-2">
-          {rationale}
-        </Text>
+        <Text className="text-indigo-800 text-sm leading-5 mt-2">{rationale}</Text>
       </View>
 
       {/* Outfit pieces */}
@@ -266,22 +551,60 @@ function OutfitResults({ result }: { result: OutfitResult }) {
       ) : (
         <View className="gap-3">
           {outfit.map((piece, i) => (
-            <OutfitCard key={piece?.item_id ?? i} piece={piece} />
+            <OutfitCard
+              key={piece?.item_id ?? i}
+              piece={piece}
+              onZoom={onZoom}
+            />
           ))}
         </View>
+      )}
+
+      {/* ── Refresh ──────────────────────────────────────────────────────── */}
+      {outfit.length > 0 && (
+        <TouchableOpacity
+          onPress={onRefresh}
+          disabled={refreshing}
+          className={`py-3.5 rounded-xl items-center flex-row justify-center gap-2 border ${
+            refreshing
+              ? "bg-gray-100 border-gray-200"
+              : "bg-white border-indigo-200"
+          }`}
+        >
+          {refreshing ? (
+            <>
+              <ActivityIndicator size="small" color="#4f46e5" />
+              <Text className="text-gray-500 text-sm font-semibold">
+                Styling more looks…
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text className="text-indigo-600 text-sm">↻</Text>
+              <Text className="text-indigo-600 text-sm font-semibold">
+                {/* Say which refreshes are instant so it's clear when a tap
+                    costs a request against the daily limit. */}
+                {hasUnseen ? "Show me the next look" : "Style something new"}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
       )}
 
       {/* Missing items */}
       {missing.length > 0 && (
         <View className="bg-amber-50 border border-amber-200 rounded-2xl p-4 gap-2">
           <Text className="text-amber-700 text-xs font-semibold uppercase tracking-wide">
-            Missing from your closet
+            Not in this look
           </Text>
           {missing.map((m, i) => (
-            <View key={i} className="flex-row items-center gap-2">
+            <View key={i} className="flex-row items-start gap-2">
               <Text className="text-amber-500">•</Text>
-              <Text className="text-amber-800 text-sm capitalize">
-                {String(m ?? "")}
+              <Text className="text-amber-800 text-sm leading-5 flex-1">
+                <Text className="capitalize font-medium">{m.role}</Text>
+                {m.reason === "not_owned"
+                  ? " — you haven't added any to your closet yet"
+                  : " — nothing in your closet suited this search"}
               </Text>
             </View>
           ))}
@@ -291,24 +614,119 @@ function OutfitResults({ result }: { result: OutfitResult }) {
   );
 }
 
+// ── StepArrow ─────────────────────────────────────────────────────────────────
+
+/** Side of the square that carries the two visible borders, per direction. */
+const CHEVRON_SIDES = {
+  right: { borderTopWidth: 2, borderRightWidth: 2, rotate: "45deg" },
+  left: { borderTopWidth: 2, borderLeftWidth: 2, rotate: "-45deg" },
+} as const;
+
+function StepArrow({
+  direction,
+  label,
+  disabled,
+  onPress,
+}: {
+  direction: "left" | "right";
+  label: string;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const side = CHEVRON_SIDES[direction];
+  const color = disabled ? "#d1d5db" : "#4f46e5";
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      // Generous hit area — the mark itself is deliberately small and quiet.
+      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+      className={`rounded-full border items-center justify-center ${
+        disabled ? "border-gray-100" : "border-gray-200"
+      }`}
+      style={{ width: 32, height: 32 }}
+    >
+      {/* Drawn from borders rather than typed as a ‹ or › character. Two
+          previous attempts to centre the glyph failed because the problem is
+          the font, not the layout: the guillemets' ink sits off-centre inside
+          their own em box, so both flex centring and an explicit lineHeight
+          faithfully centred a box whose contents were already lopsided.
+          A rotated square has no such metrics — its geometry is the mark. */}
+      <View
+        style={{
+          width: 9,
+          height: 9,
+          borderTopWidth: side.borderTopWidth,
+          borderRightWidth: "borderRightWidth" in side ? side.borderRightWidth : 0,
+          borderLeftWidth: "borderLeftWidth" in side ? side.borderLeftWidth : 0,
+          borderColor: color,
+          transform: [
+            { rotate: side.rotate },
+            // The vertex lands on the bounding box's edge while the arms trail
+            // behind it, so the ink sits ~1px toward the point. Nudge back for
+            // optical centring.
+            { translateX: direction === "right" ? -1 : 1 },
+          ],
+        }}
+      />
+    </TouchableOpacity>
+  );
+}
+
 // ── OutfitCard ────────────────────────────────────────────────────────────────
 
-function OutfitCard({ piece }: { piece: OutfitPiece }) {
+const REASON_LINES = 3;
+
+function OutfitCard({
+  piece,
+  onZoom,
+}: {
+  piece: OutfitPiece;
+  onZoom: (z: { uri: string; caption: string }) => void;
+}) {
   // piece itself may be malformed if the response shape drifts; default it.
   const item = piece?.item;
   const role = piece?.role ?? "item";
   const reason = piece?.reason ?? "";
   const { bg, text } = rolePillStyle(role);
+  const caption = [item?.color, item?.category].filter(Boolean).join(" · ");
+
+  const [expanded, setExpanded] = useState(false);
+  // Only offer "More" when the text was actually clipped. While collapsed the
+  // layout reports at most REASON_LINES lines, so hitting that limit is the
+  // signal there may be more to show.
+  const [clipped, setClipped] = useState(false);
 
   return (
-    <View className="flex-row bg-white border border-gray-100 rounded-2xl overflow-hidden">
-      {/* Thumbnail */}
+    <View
+      className={`flex-row bg-white border rounded-2xl overflow-hidden ${
+        piece?.is_anchor ? "border-indigo-200" : "border-gray-100"
+      }`}
+    >
+      {/* Thumbnail — tap to open full screen and zoom */}
       {item?.image_url ? (
-        <Image
-          source={{ uri: item.image_url }}
-          style={{ width: 88, height: 88 }}
-          resizeMode="cover"
-        />
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => onZoom({ uri: item.image_url as string, caption })}
+          accessibilityRole="imagebutton"
+          accessibilityLabel="View photo full screen"
+        >
+          <Image
+            source={{ uri: item.image_url }}
+            style={{ width: 88, height: 88 }}
+            resizeMode="cover"
+          />
+          <View
+            style={{ position: "absolute", bottom: 4, right: 4 }}
+            className="bg-black/45 w-5 h-5 rounded-full items-center justify-center"
+          >
+            <Text className="text-white text-[10px]">⤢</Text>
+          </View>
+        </TouchableOpacity>
       ) : (
         <View
           style={{ width: 88, height: 88 }}
@@ -327,18 +745,50 @@ function OutfitCard({ piece }: { piece: OutfitPiece }) {
               {role}
             </Text>
           </View>
+          {piece?.is_anchor && (
+            <View className="px-2 py-0.5 rounded-full bg-indigo-600">
+              <Text className="text-white text-xs font-semibold">Your pick</Text>
+            </View>
+          )}
           {item?.color ? (
-            <Text className="text-gray-400 text-xs capitalize" numberOfLines={1}>
+            <Text
+              className="text-gray-400 text-xs capitalize flex-1"
+              numberOfLines={1}
+            >
               {item.color}
               {item.category ? ` · ${item.category}` : ""}
             </Text>
           ) : null}
         </View>
 
-        {/* Claude's reason */}
-        <Text className="text-gray-700 text-sm leading-5" numberOfLines={3}>
-          {reason}
-        </Text>
+        {/* Claude's reason — tap to expand when it runs past three lines */}
+        <TouchableOpacity
+          activeOpacity={clipped ? 0.6 : 1}
+          onPress={() => clipped && setExpanded((e) => !e)}
+          accessibilityRole={clipped ? "button" : "text"}
+          accessibilityLabel={
+            clipped
+              ? `${reason}. Tap to ${expanded ? "collapse" : "read more"}`
+              : reason
+          }
+        >
+          <Text
+            className="text-gray-700 text-sm leading-5"
+            numberOfLines={expanded ? undefined : REASON_LINES}
+            onTextLayout={(e) => {
+              if (!expanded && e.nativeEvent.lines.length >= REASON_LINES) {
+                setClipped(true);
+              }
+            }}
+          >
+            {reason}
+          </Text>
+          {clipped && (
+            <Text className="text-indigo-600 text-xs font-semibold mt-0.5">
+              {expanded ? "Less" : "More"}
+            </Text>
+          )}
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -351,28 +801,69 @@ function OutfitCard({ piece }: { piece: OutfitPiece }) {
  * Returns null when the body can't plausibly be an outfit result (e.g. an
  * `{ error }` body returned with HTTP 200, or a drifted shape). A null return
  * tells the caller to show a friendly error rather than crash on render.
+ *
+ * Accepts the pre-variations response shape too: if the deployed function is
+ * older than the app, `outfit`/`rationale`/`missing` are folded into a single
+ * variation so the screen still works instead of showing an error.
  */
 function normalizeOutfitResult(data: unknown): OutfitResult | null {
   if (typeof data !== "object" || data === null) return null;
   const d = data as Record<string, unknown>;
 
-  // An error body with no outfit array is not a valid result.
-  if (!Array.isArray(d.outfit)) return null;
+  const hasVariations = Array.isArray(d.variations);
+  const hasLegacyOutfit = Array.isArray(d.outfit);
+  if (!hasVariations && !hasLegacyOutfit) return null;
 
-  const outfit: OutfitPiece[] = (d.outfit as unknown[])
+  const rawVariations: unknown[] = hasVariations
+    ? (d.variations as unknown[])
+    : [{ outfit: d.outfit, rationale: d.rationale, missing: d.missing }];
+
+  const variations = rawVariations
+    .filter((v): v is Record<string, unknown> => typeof v === "object" && v !== null)
+    .map((v) => normalizeVariation(v))
+    // A variation with no pieces has nothing to render.
+    .filter((v) => v.outfit.length > 0);
+
+  return {
+    query: typeof d.query === "string" ? d.query : "",
+    anchor: (d.anchor ?? null) as ItemDetail | null,
+    variations,
+    message: typeof d.rationale === "string" ? d.rationale : "",
+  };
+}
+
+function normalizeVariation(v: Record<string, unknown>): Variation {
+  const outfit: OutfitPiece[] = (Array.isArray(v.outfit) ? v.outfit : [])
     .filter((p): p is Record<string, unknown> => typeof p === "object" && p !== null)
     .map((p) => ({
       item_id: typeof p.item_id === "string" ? p.item_id : "",
       role: typeof p.role === "string" ? p.role : "item",
       reason: typeof p.reason === "string" ? p.reason : "",
       item: (p.item ?? null) as OutfitPiece["item"],
+      is_anchor: p.is_anchor === true,
     }));
 
+  const missing = Array.isArray(v.missing)
+    ? (v.missing as unknown[]).map((m) => String(m ?? ""))
+    : [];
+
+  // missing_detail is the newer, structured form. Fall back to synthesising it
+  // from the plain string list so an older function still renders sensibly.
+  const missingDetail: MissingDetail[] = Array.isArray(v.missing_detail)
+    ? (v.missing_detail as unknown[])
+        .filter((m): m is Record<string, unknown> => typeof m === "object" && m !== null)
+        .map((m) => ({
+          role: String(m.role ?? ""),
+          reason: m.reason === "not_owned" ? "not_owned" : "no_match",
+        }))
+    : missing.map((role) => ({ role, reason: "no_match" as const }));
+
   return {
-    query: typeof d.query === "string" ? d.query : "",
+    name: typeof v.name === "string" ? v.name : "",
     outfit,
-    rationale: typeof d.rationale === "string" ? d.rationale : "",
-    missing: Array.isArray(d.missing) ? (d.missing as string[]) : [],
+    rationale: typeof v.rationale === "string" ? v.rationale : "",
+    missing,
+    missing_detail: missingDetail,
   };
 }
 
@@ -380,6 +871,8 @@ function normalizeOutfitResult(data: unknown): OutfitResult | null {
 function friendlyOutfitError(raw: string): string {
   if (raw === "daily_limit")
     return "You've hit today's outfit limit — it resets tomorrow.";
+  if (raw === "anchor_not_found")
+    return "That pinned piece is no longer in your closet. Pick another one.";
   if (/network|fetch|failed to fetch|offline|internet/i.test(raw))
     return "Can't reach the server. Check your connection and try again.";
   if (/no embedded items|add some pieces/i.test(raw))
