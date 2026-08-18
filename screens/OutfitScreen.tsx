@@ -504,7 +504,7 @@ function OutfitResults({
         // how many there were but not that you could move between them.
         <View className="flex-row items-center justify-center gap-4">
           <StepArrow
-            glyph="‹"
+            direction="left"
             label="Previous look"
             disabled={index === 0}
             onPress={() => onSelectIndex(index - 1)}
@@ -513,7 +513,7 @@ function OutfitResults({
             Look {index + 1} of {total}
           </Text>
           <StepArrow
-            glyph="›"
+            direction="right"
             label="Next look"
             disabled={index >= total - 1}
             onPress={() => onSelectIndex(index + 1)}
@@ -616,17 +616,26 @@ function OutfitResults({
 
 // ── StepArrow ─────────────────────────────────────────────────────────────────
 
+/** Side of the square that carries the two visible borders, per direction. */
+const CHEVRON_SIDES = {
+  right: { borderTopWidth: 2, borderRightWidth: 2, rotate: "45deg" },
+  left: { borderTopWidth: 2, borderLeftWidth: 2, rotate: "-45deg" },
+} as const;
+
 function StepArrow({
-  glyph,
+  direction,
   label,
   disabled,
   onPress,
 }: {
-  glyph: string;
+  direction: "left" | "right";
   label: string;
   disabled: boolean;
   onPress: () => void;
 }) {
+  const side = CHEVRON_SIDES[direction];
+  const color = disabled ? "#d1d5db" : "#4f46e5";
+
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -634,29 +643,36 @@ function StepArrow({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
-      // Generous hit area — the glyph itself is deliberately small and quiet.
+      // Generous hit area — the mark itself is deliberately small and quiet.
       hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-      className={`rounded-full border ${
+      className={`rounded-full border items-center justify-center ${
         disabled ? "border-gray-100" : "border-gray-200"
       }`}
       style={{ width: 32, height: 32 }}
     >
-      {/* The glyph is centred by making the Text fill the circle and setting
-          lineHeight to its height. Relying on flex centring left it sitting
-          high: ‹ and › have asymmetric font metrics, so the layout box centres
-          while the visible mark does not. */}
-      <Text
-        className={disabled ? "text-gray-300" : "text-indigo-600"}
+      {/* Drawn from borders rather than typed as a ‹ or › character. Two
+          previous attempts to centre the glyph failed because the problem is
+          the font, not the layout: the guillemets' ink sits off-centre inside
+          their own em box, so both flex centring and an explicit lineHeight
+          faithfully centred a box whose contents were already lopsided.
+          A rotated square has no such metrics — its geometry is the mark. */}
+      <View
         style={{
-          width: 32,
-          height: 32,
-          lineHeight: 32,
-          fontSize: 18,
-          textAlign: "center",
+          width: 9,
+          height: 9,
+          borderTopWidth: side.borderTopWidth,
+          borderRightWidth: "borderRightWidth" in side ? side.borderRightWidth : 0,
+          borderLeftWidth: "borderLeftWidth" in side ? side.borderLeftWidth : 0,
+          borderColor: color,
+          transform: [
+            { rotate: side.rotate },
+            // The vertex lands on the bounding box's edge while the arms trail
+            // behind it, so the ink sits ~1px toward the point. Nudge back for
+            // optical centring.
+            { translateX: direction === "right" ? -1 : 1 },
+          ],
         }}
-      >
-        {glyph}
-      </Text>
+      />
     </TouchableOpacity>
   );
 }
