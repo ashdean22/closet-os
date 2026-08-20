@@ -43,3 +43,6 @@ yarn-error.*
 
 # Google Play service account key — a credential, never commit
 credentials/
+
+# Claude Code scratch worktrees
+.claude/worktrees/
