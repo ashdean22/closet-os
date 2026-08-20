@@ -10,12 +10,15 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  Alert,
 } from "react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import DecoHeader from "../components/DecoHeader";
 import ErrorBoundary from "../components/ErrorBoundary";
 import ImageZoomModal from "../components/ImageZoomModal";
 import ItemPickerModal, { type PickableItem } from "../components/ItemPickerModal";
+import SavedOutfitsList from "../components/SavedOutfitsList";
+import { saveOutfit } from "../lib/savedOutfits";
 import { supabase } from "../lib/supabase";
 import { colors, fonts, tracking } from "../lib/theme";
 import { readFunctionError } from "../lib/functionErrors";
@@ -83,6 +86,16 @@ export default function OutfitScreen() {
   const [zoom, setZoom] = useState<{ uri: string; caption: string } | null>(null);
   const inputRef = useRef<TextInput>(null);
 
+  // The Outfit tab carries two views. A segmented control rather than a fifth
+  // tab: the bar already runs four items at 9px and a fifth crushes the labels.
+  const [mode, setMode] = useState<"find" | "saved">("find");
+  // Bumped after a save so the saved list refetches when switched to.
+  const [savedRefreshKey, setSavedRefreshKey] = useState(0);
+  // Which looks in the current batch are already saved, so the button can say
+  // so instead of quietly creating duplicates.
+  const [savedIndices, setSavedIndices] = useState<Set<number>>(new Set());
+  const [savingLook, setSavingLook] = useState(false);
+
   // Guards against setState after unmount (suspect #3). The screen normally
   // stays mounted across tab switches, but this keeps the async path safe.
   const mounted = useRef(true);
@@ -113,6 +126,7 @@ export default function OutfitScreen() {
         setLoading(true);
         setResult(null);
         setIndex(0);
+        setSavedIndices(new Set());
       } else {
         setRefreshing(true);
       }
@@ -228,6 +242,49 @@ export default function OutfitScreen() {
     fetchOutfits({ append: true, excludeItemIds: exclude });
   }, [fetchOutfits, index, refreshing, result]);
 
+  /**
+   * Saving costs nothing — no model call — so the look is written immediately
+   * under the name the stylist already gave it. Renaming lives in the saved
+   * list; asking for a name before the user has seen it save is friction for
+   * no benefit.
+   */
+  const handleSaveLook = useCallback(async () => {
+    const variation = result?.variations[index];
+    if (!variation || savingLook || savedIndices.has(index)) return;
+
+    const pieces = variation.outfit
+      .filter((p) => p?.item_id)
+      .map((p) => ({
+        item_id: p.item_id,
+        role: p.role ?? null,
+        reason: p.reason ?? null,
+        is_anchor: !!p.is_anchor,
+      }));
+
+    if (pieces.length === 0) return;
+
+    setSavingLook(true);
+    try {
+      await saveOutfit({
+        name: variation.name || result?.query || "Saved outfit",
+        query: result?.query ?? null,
+        rationale: variation.rationale ?? null,
+        pieces,
+      });
+      if (!mounted.current) return;
+      setSavedIndices((prev) => new Set(prev).add(index));
+      setSavedRefreshKey((k) => k + 1);
+    } catch (err) {
+      if (!mounted.current) return;
+      Alert.alert(
+        "Couldn't save",
+        err instanceof Error ? err.message : "Please try again.",
+      );
+    } finally {
+      if (mounted.current) setSavingLook(false);
+    }
+  }, [index, result, savedIndices, savingLook]);
+
   const current = result?.variations[index] ?? null;
   const hasUnseen = result ? index < result.variations.length - 1 : false;
 
@@ -244,133 +301,148 @@ export default function OutfitScreen() {
           contentContainerStyle={{ padding: 20, gap: 20 }}
         >
           {/* ── Header ─────────────────────────────────────────────────── */}
-          <DecoHeader title="Find an Outfit" />
+          <DecoHeader title={mode === "find" ? "Find an Outfit" : "Saved Outfits"} />
 
-          {/* ── Anchor piece ───────────────────────────────────────────── */}
-          <AnchorRow
-            anchor={anchor}
-            onPick={() => setPickerOpen(true)}
-            onClear={() => setAnchor(null)}
-          />
+          {/* ── Find / Saved ───────────────────────────────────────────── */}
+          <ModeToggle mode={mode} onChange={setMode} />
 
-          {/* ── Query input ────────────────────────────────────────────── */}
-          <View className="gap-3">
-            <TextInput
-              ref={inputRef}
-              value={query}
-              onChangeText={setQuery}
-              placeholder={
-                anchor
-                  ? "Add an occasion (optional)"
-                  : "e.g. outfit for a 65° rainy interview"
-              }
-              placeholderTextColor={colors.inkFaint}
-              returnKeyType="search"
-              onSubmitEditing={handleFind}
-              multiline={false}
-              // Explicit style prevents Android text-clipping caused by
-              // includeFontPadding collapsing the NativeWind py-* height.
-              style={{
-                borderWidth: 1,
-                borderColor: colors.edge,
-                borderRadius: 4,
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                fontSize: 16,
-                color: colors.ink,
-                backgroundColor: colors.surface,
-              }}
+          {mode === "find" ? (
+            <>
+            {/* ── Anchor piece ───────────────────────────────────────────── */}
+            <AnchorRow
+              anchor={anchor}
+              onPick={() => setPickerOpen(true)}
+              onClear={() => setAnchor(null)}
             />
-            <TouchableOpacity
-              onPress={handleFind}
-              disabled={!canSearch || loading}
-              className={`py-4 rounded items-center flex-row justify-center gap-2 ${
-                canSearch && !loading ? "bg-rust" : "bg-sunken"
-              }`}
-            >
-              {/* No spinner here on purpose — the results area below already
-                  shows one, and two animations for a single wait read as two
-                  things happening. The label carries the state instead. */}
-              <Text
-                className={`text-base font-semibold ${
-                  canSearch && !loading ? "text-ground" : "text-ink-faint"
-                }`}
-              >
-                {loading ? "Styling…" : "Find My Outfit"}
-              </Text>
-            </TouchableOpacity>
-          </View>
 
-          {/* ── Error ──────────────────────────────────────────────────── */}
-          {error && (
-            <View className="bg-danger-tint border border-danger-edge rounded p-4 gap-3">
-              <Text className="text-danger text-sm font-semibold">
-                Couldn't find an outfit
-              </Text>
-              <Text className="text-danger text-sm leading-5">{error}</Text>
+            {/* ── Query input ────────────────────────────────────────────── */}
+            <View className="gap-3">
+              <TextInput
+                ref={inputRef}
+                value={query}
+                onChangeText={setQuery}
+                placeholder={
+                  anchor
+                    ? "Add an occasion (optional)"
+                    : "e.g. outfit for a 65° rainy interview"
+                }
+                placeholderTextColor={colors.inkFaint}
+                returnKeyType="search"
+                onSubmitEditing={handleFind}
+                multiline={false}
+                // Explicit style prevents Android text-clipping caused by
+                // includeFontPadding collapsing the NativeWind py-* height.
+                style={{
+                  borderWidth: 1,
+                  borderColor: colors.edge,
+                  borderRadius: 4,
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  fontSize: 16,
+                  color: colors.ink,
+                  backgroundColor: colors.surface,
+                }}
+              />
               <TouchableOpacity
                 onPress={handleFind}
-                className="self-start bg-danger-tint px-4 py-2 rounded"
+                disabled={!canSearch || loading}
+                className={`py-4 rounded items-center flex-row justify-center gap-2 ${
+                  canSearch && !loading ? "bg-rust" : "bg-sunken"
+                }`}
               >
-                <Text className="text-danger text-sm font-semibold">Try again</Text>
+                {/* No spinner here on purpose — the results area below already
+                    shows one, and two animations for a single wait read as two
+                    things happening. The label carries the state instead. */}
+                <Text
+                  className={`text-base font-semibold ${
+                    canSearch && !loading ? "text-ground" : "text-ink-faint"
+                  }`}
+                >
+                  {loading ? "Styling…" : "Find My Outfit"}
+                </Text>
               </TouchableOpacity>
             </View>
-          )}
 
-          {/* ── Loading state ──────────────────────────────────────────── */}
-          {loading && (
-            <View className="items-center py-16 gap-4">
-              <ActivityIndicator size="large" color={colors.rust} />
-              <Text className="text-ink-soft text-base font-medium">
-                Finding your outfits…
-              </Text>
-            </View>
-          )}
+            {/* ── Error ──────────────────────────────────────────────────── */}
+            {error && (
+              <View className="bg-danger-tint border border-danger-edge rounded p-4 gap-3">
+                <Text className="text-danger text-sm font-semibold">
+                  Couldn't find an outfit
+                </Text>
+                <Text className="text-danger text-sm leading-5">{error}</Text>
+                <TouchableOpacity
+                  onPress={handleFind}
+                  className="self-start bg-danger-tint px-4 py-2 rounded"
+                >
+                  <Text className="text-danger text-sm font-semibold">Try again</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
-          {/* ── Empty / prompt state ────────────────────────────────────── */}
-          {!loading && !result && !error && (
-            <View className="items-center py-16 gap-3">
-              {/* Brass marks the AI moments throughout the app. */}
-              <Text style={{ fontSize: 36, color: colors.brass }}>{"\u2726\uFE0E"}</Text>
-              <Text className="text-ink-soft text-base text-center">
-                Describe the occasion, weather, or vibe — or pin a piece you want
-                to wear — and Claude will build a few looks from your closet.
-              </Text>
-            </View>
-          )}
+            {/* ── Loading state ──────────────────────────────────────────── */}
+            {loading && (
+              <View className="items-center py-16 gap-4">
+                <ActivityIndicator size="large" color={colors.rust} />
+                <Text className="text-ink-soft text-base font-medium">
+                  Finding your outfits…
+                </Text>
+              </View>
+            )}
 
-          {/* ── Results ────────────────────────────────────────────────── */}
-          {result && current && (
-            <OutfitResults
-              query={result.query}
-              variation={current}
-              index={index}
-              total={result.variations.length}
-              refreshing={refreshing}
-              hasUnseen={hasUnseen}
-              onSelectIndex={setIndex}
-              onRefresh={handleRefresh}
-              onZoom={setZoom}
+            {/* ── Empty / prompt state ────────────────────────────────────── */}
+            {!loading && !result && !error && (
+              <View className="items-center py-16 gap-3">
+                {/* Brass marks the AI moments throughout the app. */}
+                <Text style={{ fontSize: 36, color: colors.brass }}>{"\u2726\uFE0E"}</Text>
+                <Text className="text-ink-soft text-base text-center">
+                  Describe the occasion, weather, or vibe — or pin a piece you want
+                  to wear — and Claude will build a few looks from your closet.
+                </Text>
+              </View>
+            )}
+
+            {/* ── Results ────────────────────────────────────────────────── */}
+            {result && current && (
+              <OutfitResults
+                query={result.query}
+                variation={current}
+                index={index}
+                total={result.variations.length}
+                refreshing={refreshing}
+                hasUnseen={hasUnseen}
+                saved={savedIndices.has(index)}
+                saving={savingLook}
+                onSave={handleSaveLook}
+                onSelectIndex={setIndex}
+                onRefresh={handleRefresh}
+                onZoom={setZoom}
+              />
+            )}
+
+            {/* Server returned a valid response with no buildable looks. Prefer
+                its own explanation — "your closet is empty" and "nothing left
+                after those refreshes" are different problems. */}
+            {result && !current && !loading && (
+              <View className="bg-notice-tint border border-notice-edge rounded p-4 gap-1">
+                <Text className="text-notice text-sm font-semibold">
+                  {closetIsEmpty(result.message)
+                    ? "Your closet is empty"
+                    : "No outfits to show"}
+                </Text>
+                <Text className="text-chip-brass-ink text-sm leading-5">
+                  {closetIsEmpty(result.message)
+                    ? "Add and save some items first — the AI needs photos to work with."
+                    : result.message ||
+                      "Try rephrasing your search, or add more variety to your closet."}
+                </Text>
+              </View>
+            )}
+            </>
+          ) : (
+            <SavedOutfitsList
+              refreshKey={savedRefreshKey}
+              onFindOutfit={() => setMode("find")}
             />
-          )}
-
-          {/* Server returned a valid response with no buildable looks. Prefer
-              its own explanation — "your closet is empty" and "nothing left
-              after those refreshes" are different problems. */}
-          {result && !current && !loading && (
-            <View className="bg-notice-tint border border-notice-edge rounded p-4 gap-1">
-              <Text className="text-notice text-sm font-semibold">
-                {closetIsEmpty(result.message)
-                  ? "Your closet is empty"
-                  : "No outfits to show"}
-              </Text>
-              <Text className="text-chip-brass-ink text-sm leading-5">
-                {closetIsEmpty(result.message)
-                  ? "Add and save some items first — the AI needs photos to work with."
-                  : result.message ||
-                    "Try rephrasing your search, or add more variety to your closet."}
-              </Text>
-            </View>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -394,6 +466,58 @@ export default function OutfitScreen() {
       />
     </ScreenWrapper>
     </ErrorBoundary>
+  );
+}
+
+// ── ModeToggle ────────────────────────────────────────────────────────────────
+
+/**
+ * FIND / SAVED, styled as the sign-in toggle so the two segmented controls in
+ * the app read as the same component. Deliberately not a fifth tab — the bar
+ * already runs four items at 9px and a fifth crushes the labels.
+ */
+function ModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: "find" | "saved";
+  onChange: (m: "find" | "saved") => void;
+}) {
+  return (
+    <View
+      className="flex-row p-1"
+      style={{
+        backgroundColor: colors.sunken,
+        borderRadius: 4,
+        borderWidth: 1,
+        borderColor: colors.edge,
+      }}
+    >
+      {(["find", "saved"] as const).map((m) => (
+        <TouchableOpacity
+          key={m}
+          onPress={() => onChange(m)}
+          className="flex-1 py-2.5 items-center"
+          accessibilityRole="button"
+          accessibilityState={{ selected: mode === m }}
+          style={{
+            borderRadius: 2,
+            backgroundColor: mode === m ? colors.surface : "transparent",
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: fonts.deco,
+              fontSize: 12,
+              letterSpacing: tracking.deco,
+              color: mode === m ? colors.ink : colors.inkFaint,
+            }}
+          >
+            {m === "find" ? "FIND" : "SAVED"}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
   );
 }
 
@@ -481,8 +605,11 @@ function OutfitResults({
   total,
   refreshing,
   hasUnseen,
+  saved,
+  saving,
   onSelectIndex,
   onRefresh,
+  onSave,
   onZoom,
 }: {
   query: string;
@@ -491,8 +618,11 @@ function OutfitResults({
   total: number;
   refreshing: boolean;
   hasUnseen: boolean;
+  saved: boolean;
+  saving: boolean;
   onSelectIndex: (i: number) => void;
   onRefresh: () => void;
+  onSave: () => void;
   onZoom: (z: { uri: string; caption: string }) => void;
 }) {
   // Defensive defaults: even though normalizeOutfitResult guarantees arrays,
@@ -565,6 +695,36 @@ function OutfitResults({
             />
           ))}
         </View>
+      )}
+
+      {/* ── Save ─────────────────────────────────────────────────────────── */}
+      {outfit.length > 0 && (
+        <TouchableOpacity
+          onPress={onSave}
+          disabled={saved || saving}
+          className={`py-3.5 rounded items-center flex-row justify-center gap-2 ${
+            saved
+              ? "bg-success-tint border border-success"
+              : saving
+                ? "bg-sunken"
+                : "bg-rust"
+          }`}
+          accessibilityRole="button"
+          accessibilityLabel={saved ? "Outfit saved" : "Save this look"}
+        >
+          {saving ? (
+            <>
+              <ActivityIndicator size="small" color={colors.inkSoft} />
+              <Text className="text-ink-soft text-sm font-semibold">Saving…</Text>
+            </>
+          ) : saved ? (
+            <Text className="text-success text-sm font-semibold">
+              Saved to your outfits
+            </Text>
+          ) : (
+            <Text className="text-ground text-sm font-semibold">Save this look</Text>
+          )}
+        </TouchableOpacity>
       )}
 
       {/* ── Refresh ──────────────────────────────────────────────────────── */}
