@@ -138,6 +138,31 @@ stores.
 - COVID-19 contact tracing: **No**
 - Data safety, government app, financial features: **No**
 
+## Verified on an Android 15 emulator (Pixel 7, API 35)
+
+Build `69b1d710` (preview APK, versionCode 2) installed and exercised:
+
+- [x] App launches, signs up, and signs in on Android
+- [x] Atomic Age theme renders — both custom fonts load, colours correct
+- [x] Edge-to-edge works; status bar inverts correctly per screen
+      (light on the teal auth screen, dark on the cream app)
+- [x] **Back button**: from any tab returns to Add Item; from Add Item it
+      exits to the launcher. Confirmed via `dumpsys` that the second press
+      hands off to NexusLauncherActivity.
+- [x] Splash renders the rust logo mark on cream
+- [x] `RECORD_AUDIO` and `WRITE_EXTERNAL_STORAGE` absent from the installed
+      package (`adb shell dumpsys package`), confirming blockedPermissions
+      and `microphonePermission: false` survive the manifest merge
+- [x] `versionCode=2`, `versionName=1.0.0`, `minSdk=24`, `targetSdk=36`
+
+Still to do: **phone screenshots**. The test account's closet is empty, so
+the listing needs a populated demo closet (8-10 items across
+top/bottom/shoes/outerwear) before capture.
+
+**Demo account for Play review**: `capsule.playtest2026@gmail.com`.
+Password is deliberately not recorded here — this repo is public. Put it in
+the Play Console review notes only.
+
 ## Release checklist
 
 - [ ] App entry created in Play Console
