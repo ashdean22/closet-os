@@ -1,6 +1,13 @@
 import "./global.css";
 import { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ActivityIndicator,
+  BackHandler,
+  Platform,
+} from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFonts } from "expo-font";
@@ -76,6 +83,27 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, []);
+
+  // ── Android hardware/gesture back ──────────────────────────────────────────
+  // Without this, back exits the app from any tab — the single most common
+  // Android complaint about tab apps ported from iOS. Back now walks to the
+  // Add Item tab first; pressing it again there falls through to the system
+  // default and leaves the app, which is what Android users expect from a
+  // root screen. Modals are unaffected: RN's <Modal> intercepts back itself
+  // and every one of ours sets onRequestClose.
+  useEffect(() => {
+    if (Platform.OS !== "android" || !session) return;
+
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (tab !== "home") {
+        setTab("home");
+        return true; // consumed
+      }
+      return false; // let Android close the app
+    });
+
+    return () => sub.remove();
+  }, [tab, session]);
 
   // Render on a font error too — falling back to the system face is far better
   // than holding the app on a spinner forever.

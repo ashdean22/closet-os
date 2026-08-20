@@ -12,10 +12,19 @@
         {
           "cameraPermission": "Capsule uses your camera to photograph clothing items to add them to your wardrobe.",
           "photosPermission": "Capsule accesses your photo library so you can add existing photos of clothing items.",
-          "savePhotosPermission": "Capsule saves clothing photos to your photo library."
+          "microphonePermission": false
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#F2E9DA"
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": false,
@@ -23,7 +32,6 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Capsule uses your camera to photograph clothing items to add them to your wardrobe.",
         "NSPhotoLibraryUsageDescription": "Capsule accesses your photo library so you can add existing photos of clothing items.",
-        "NSPhotoLibraryAddUsageDescription": "Capsule saves clothing photos to your photo library.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.gabe822.closetos"
@@ -41,7 +49,12 @@
         "READ_MEDIA_IMAGES",
         "READ_EXTERNAL_STORAGE"
       ],
-      "package": "com.gabe822.closetos"
+      "package": "com.gabe822.closetos",
+      "edgeToEdgeEnabled": true,
+      "blockedPermissions": [
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "versionCode": 2
     },
     "web": {
       "favicon": "./assets/favicon.png"
