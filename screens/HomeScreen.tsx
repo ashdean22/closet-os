@@ -11,6 +11,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import ScreenWrapper from "../components/ScreenWrapper";
 import DecoHeader from "../components/DecoHeader";
+import StarterProgress from "../components/StarterProgress";
 import { supabase } from "../lib/supabase";
 import { colors, fonts, tracking } from "../lib/theme";
 import { readFunctionError, type FunctionErrorDetail } from "../lib/functionErrors";
@@ -55,6 +56,8 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
   const [asset, setAsset] = useState<PickedAsset | null>(null);
   const [tags, setTags] = useState<ItemTags | null>(null);
   const [saving, setSaving] = useState(false);
+  // Bumped after each successful save so the starter progress re-counts.
+  const [savedCount, setSavedCount] = useState(0);
   const [duplicate, setDuplicate] = useState<DuplicateState | null>(null);
   // reason is kept alongside the message so the render can react to specific
   // failures (e.g. no_item shows the prominent scan tips).
@@ -196,6 +199,7 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
         if (similar && similar.length > 0) {
           // Surface the warning — user decides whether to keep or remove
           setDuplicate({ newItemId: newItem.id, newImageUrl: publicUrl, newTags: tagData, match: similar[0] });
+          setSavedCount((c) => c + 1);
           setSaving(false);
           return; // hold on this screen; don't navigate yet
         }
@@ -206,6 +210,7 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
 
       // 7. No duplicate — navigate to Closet
       setTags(tagData);
+      setSavedCount((c) => c + 1);
       onNavigateToCloset();
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
@@ -237,6 +242,7 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
     setDuplicate(null);
     setAsset(null);
     setTags(null);
+    setSavedCount((c) => c + 1);
     onNavigateToCloset();
   };
 
@@ -249,6 +255,9 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
         showsVerticalScrollIndicator={false}
       >
         <DecoHeader title="Add Item" />
+
+        {/* Vanishes once the closet is big enough to style from. */}
+        <StarterProgress refreshKey={savedCount} />
 
         {/* Photo preview */}
         {asset ? (

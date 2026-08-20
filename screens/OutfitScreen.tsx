@@ -19,6 +19,7 @@ import ImageZoomModal from "../components/ImageZoomModal";
 import ItemPickerModal, { type PickableItem } from "../components/ItemPickerModal";
 import SavedOutfitsList from "../components/SavedOutfitsList";
 import { saveOutfit } from "../lib/savedOutfits";
+import { hasSeen, markSeen } from "../lib/onboarding";
 import { supabase } from "../lib/supabase";
 import { colors, fonts, tracking } from "../lib/theme";
 import { readFunctionError } from "../lib/functionErrors";
@@ -95,6 +96,9 @@ export default function OutfitScreen() {
   // so instead of quietly creating duplicates.
   const [savedIndices, setSavedIndices] = useState<Set<number>>(new Set());
   const [savingLook, setSavingLook] = useState(false);
+  // One-time hint on the first visit. Shows what a good query looks like —
+  // "describe the day, not the clothes" is the part people get wrong.
+  const [showCoach, setShowCoach] = useState(false);
 
   // Guards against setState after unmount (suspect #3). The screen normally
   // stays mounted across tab switches, but this keeps the async path safe.
@@ -104,6 +108,21 @@ export default function OutfitScreen() {
     return () => {
       mounted.current = false;
     };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    hasSeen("outfitCoach").then((seen) => {
+      if (active && !seen) setShowCoach(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const dismissCoach = useCallback(() => {
+    setShowCoach(false);
+    markSeen("outfitCoach");
   }, []);
 
   const canSearch = query.trim().length > 0 || anchor !== null;
@@ -314,6 +333,32 @@ export default function OutfitScreen() {
               onPick={() => setPickerOpen(true)}
               onClear={() => setAnchor(null)}
             />
+
+            {/* ── First-visit hint ───────────────────────────────────────── */}
+            {showCoach && !result && (
+              <View className="bg-brass-tint border border-brass rounded p-4 gap-2">
+                <Text
+                  style={{
+                    fontFamily: fonts.deco,
+                    fontSize: 11,
+                    letterSpacing: tracking.deco,
+                    color: colors.notice,
+                  }}
+                >
+                  TRY ASKING FOR
+                </Text>
+                <Text className="text-ink text-base italic">
+                  "65° and rainy, job interview"
+                </Text>
+                <Text className="text-ink-soft text-sm leading-5">
+                  Describe the day — the weather, the occasion, the mood. Capsule
+                  picks the clothes.
+                </Text>
+                <TouchableOpacity onPress={dismissCoach} className="self-start pt-1">
+                  <Text className="text-rust text-sm font-semibold">Got it</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {/* ── Query input ────────────────────────────────────────────── */}
             <View className="gap-3">

@@ -19,6 +19,8 @@ import HomeScreen from "./screens/HomeScreen";
 import ClosetScreen from "./screens/ClosetScreen";
 import OutfitScreen from "./screens/OutfitScreen";
 import SettingsScreen from "./screens/SettingsScreen";
+import WelcomeSheet from "./components/WelcomeSheet";
+import { hasSeen, markSeen } from "./lib/onboarding";
 
 type Tab = "home" | "closet" | "outfit" | "settings";
 
@@ -29,6 +31,9 @@ export default function App() {
   // Incrementing this triggers a silent re-fetch in ClosetScreen so new items
   // appear immediately after a successful add without a manual pull-to-refresh.
   const [closetRefreshKey, setClosetRefreshKey] = useState(0);
+  // null until the flag has been read, so the app never flashes on screen
+  // before the welcome card appears over it.
+  const [needsWelcome, setNeedsWelcome] = useState<boolean | null>(null);
 
   // Loaded at runtime rather than embedded via the expo-font config plugin so
   // type changes ship over EAS Update. The native module is already in the
@@ -47,7 +52,11 @@ export default function App() {
     // tokens locally, and route to sign-in instead of letting it bubble up.
     (async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const [{ data: { session }, error }, seen] = await Promise.all([
+          supabase.auth.getSession(),
+          hasSeen("welcome"),
+        ]);
+        if (active) setNeedsWelcome(!seen);
         if (error) throw error;
         if (active) setSession(session);
       } catch (err) {
@@ -58,7 +67,11 @@ export default function App() {
         } else {
           console.warn("[auth] Could not restore session:", err);
         }
-        if (active) setSession(null);
+        if (active) {
+          setSession(null);
+          // Fail open — never hold someone on a spinner over a hint.
+          setNeedsWelcome((prev) => prev ?? false);
+        }
       } finally {
         if (active) setInitializing(false);
       }
@@ -109,7 +122,7 @@ export default function App() {
   // than holding the app on a spinner forever.
   const fontsReady = fontsLoaded || !!fontError;
 
-  if (initializing || !fontsReady) {
+  if (initializing || !fontsReady || needsWelcome === null) {
     return (
       <SafeAreaProvider>
         <View className="flex-1 items-center justify-center bg-ground">
@@ -124,6 +137,21 @@ export default function App() {
       <SafeAreaProvider>
         <AuthScreen />
         {/* Auth sits on the deep teal ground, so the status bar inverts here. */}
+        <StatusBar style="light" />
+      </SafeAreaProvider>
+    );
+  }
+
+  if (needsWelcome) {
+    return (
+      <SafeAreaProvider>
+        <WelcomeSheet
+          onStart={() => {
+            markSeen("welcome");
+            setNeedsWelcome(false);
+            setTab("home");
+          }}
+        />
         <StatusBar style="light" />
       </SafeAreaProvider>
     );
