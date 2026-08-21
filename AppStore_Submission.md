@@ -81,12 +81,11 @@ Done:
 - [x] Settings screen: version + privacy policy link verified
 - [x] Android APK rebuilt and the stale share link replaced
 - [x] Build 3 uploaded to App Store Connect (superseded by build 4 — see below)
-- [x] Account deletion re-tested **with items attached** — see below
+- [x] Account deletion re-tested **with items attached**, gap found and fixed,
+      function redeployed and re-tested clean — see below
 
 Remaining:
 
-- [ ] Deploy the delete-account fix: `supabase functions deploy delete-account`,
-      then re-run the throwaway test to confirm saved outfits go too
 - [ ] Attach **build 4** (the rename build) to version 1.0, not build 3
 - [ ] Rename the app record in App Store Connect to `Capsule Digital Closet`
 - [ ] Screenshots at 6.7″ size: closet grid, outfit result with reasoning,
@@ -113,9 +112,9 @@ readable, after an account deletion that reported success. The pieces survive
 too, with `item_id` set to NULL by the tombstone FK.
 
 Fixed by deleting `saved_outfits` for the user before the items rows (pieces
-cascade on `outfit_id`). Not yet deployed — the function still needs
-`supabase functions deploy delete-account`, and the test above should be
-re-run against the deployed version.
+cascade on `outfit_id`). Deployed, and the same test re-run against the
+deployed function: items, saved outfit, pieces, storage objects and the auth
+user all gone.
 
 One trap for whoever re-tests: a public storage URL fetched **before** the
 deletion comes back 200 afterwards on a Cloudflare cache HIT. It is not a
