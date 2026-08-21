@@ -1,9 +1,10 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 // Apple-required in-app account deletion (App Review Guideline 5.1.1(v)).
-// Deletes, in order: the user's storage images, their items rows, their usage
-// rows, and finally the auth user via the admin API. The service-role key
-// exists ONLY as a function secret — it is never shipped in the app.
+// Deletes, in order: the user's storage images, their saved outfits, their
+// items rows, their usage rows, and finally the auth user via the admin API.
+// The service-role key exists ONLY as a function secret — it is never shipped
+// in the app.
 //
 // Every step is idempotent, so a partial failure is safely retryable: the
 // client just calls the function again.
@@ -75,7 +76,25 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ── 2. Delete items rows ──────────────────────────────────────────────
+    // ── 2. Delete saved outfits ───────────────────────────────────────────
+    // Nothing cascades these away for us: user_id is a bare uuid column with
+    // no FK to auth.users, so deleting the auth user leaves the outfit rows
+    // behind — name, the free-text query ("65 and rainy, job interview") and
+    // Claude's per-piece reasons, all of it user content. Pieces go with the
+    // outfit via ON DELETE CASCADE on outfit_id.
+    const { error: outfitsError } = await supabase
+      .from("saved_outfits")
+      .delete()
+      .eq("user_id", userId);
+    if (outfitsError) {
+      console.error("[delete-account] saved_outfits delete failed:", outfitsError.message);
+      return json(
+        { error: "Could not delete account data — please try again.", reason: "partial_failure" },
+        500,
+      );
+    }
+
+    // ── 3. Delete items rows ──────────────────────────────────────────────
     const { error: itemsError } = await supabase
       .from("items")
       .delete()
@@ -88,7 +107,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // ── 3. Delete usage rows (best-effort — table may not exist locally) ──
+    // ── 4. Delete usage rows (best-effort — table may not exist locally) ──
     const { error: usageError } = await supabase
       .from("api_usage")
       .delete()
@@ -97,7 +116,7 @@ Deno.serve(async (req: Request) => {
       console.warn("[delete-account] api_usage delete:", usageError.message);
     }
 
-    // ── 4. Delete the auth user ───────────────────────────────────────────
+    // ── 5. Delete the auth user ───────────────────────────────────────────
     const { error: adminError } = await supabase.auth.admin.deleteUser(userId);
     if (adminError) {
       console.error("[delete-account] auth delete failed:", adminError.message);

@@ -81,14 +81,12 @@ Done:
 - [x] Settings screen: version + privacy policy link verified
 - [x] Android APK rebuilt and the stale share link replaced
 - [x] Build 3 uploaded to App Store Connect (superseded by build 4 — see below)
+- [x] Account deletion re-tested **with items attached** — see below
 
 Remaining:
 
-- [ ] Re-test account deletion **with items attached** — the first pass had an
-      empty closet, so storage cleanup and item-row deletion never executed.
-      Add 1–2 items to a throwaway, delete it, then confirm the
-      `wardrobe-items` bucket has no leftovers. Storage failures log as
-      warnings, so a broken path fails silently while still claiming success.
+- [ ] Deploy the delete-account fix: `supabase functions deploy delete-account`,
+      then re-run the throwaway test to confirm saved outfits go too
 - [ ] Attach **build 4** (the rename build) to version 1.0, not build 3
 - [ ] Rename the app record in App Store Connect to `Capsule Digital Closet`
 - [ ] Screenshots at 6.7″ size: closet grid, outfit result with reasoning,
@@ -96,6 +94,33 @@ Remaining:
 - [ ] Paste listing copy, privacy labels, review notes + demo credentials,
       category (Lifestyle) / price (Free)
 - [ ] Submit for review (1–3 day turnaround typical)
+
+## Account deletion, re-tested with items attached
+
+Throwaway account, two items with real storage objects, one saved outfit
+through the `save_outfit` RPC, then `delete-account` with that user's JWT.
+Result was `{"success": true}` — and it was not telling the whole truth.
+
+Gone as claimed: both `items` rows, both storage objects, the auth user
+(password sign-in afterwards returns 400).
+
+**Left behind: the saved outfit.** `saved_outfits.user_id` is a bare uuid
+column with no FK to `auth.users`, so deleting the auth user cascades nothing,
+and the function never touched the table — it was written before saved outfits
+existed. The orphaned row keeps the outfit name, the free-text query ("65 and
+rainy, job interview") and Claude's per-piece reasons: user content, still
+readable, after an account deletion that reported success. The pieces survive
+too, with `item_id` set to NULL by the tombstone FK.
+
+Fixed by deleting `saved_outfits` for the user before the items rows (pieces
+cascade on `outfit_id`). Not yet deployed — the function still needs
+`supabase functions deploy delete-account`, and the test above should be
+re-run against the deployed version.
+
+One trap for whoever re-tests: a public storage URL fetched **before** the
+deletion comes back 200 afterwards on a Cloudflare cache HIT. It is not a
+leftover object. Add a cache-busting query param, or read through
+`/storage/v1/object/...` with a token — both returned 400, correctly.
 
 ## TestFlight "What to Test" — build 5
 
