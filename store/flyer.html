@@ -103,12 +103,12 @@
     white-space: nowrap;
   }
 
-  main { padding: 0.5in 0.6in 0; display: flex; flex-direction: column; gap: 0.34in; }
+  main { padding: 0.52in 0.6in 0; display: flex; flex-direction: column; gap: 0.42in; }
 
   h1 {
     font-family: "Limelight", Georgia, serif;
     font-weight: 400;
-    font-size: 63px;
+    font-size: 66px;
     line-height: 1.02;
     letter-spacing: -0.005em;
     margin: 0;
@@ -127,7 +127,7 @@
 
   /* The three steps are a real sequence — you cannot ask before you shoot —
      so they are numbered. */
-  .steps { display: flex; flex-direction: column; gap: 15px; margin: 0; padding: 0; list-style: none; }
+  .steps { display: flex; flex-direction: column; gap: 22px; margin: 0; padding: 0; list-style: none; }
   .step { display: grid; grid-template-columns: 30px 1fr; gap: 14px; align-items: start; }
   .step .n {
     font-size: 12px;
@@ -147,15 +147,15 @@
   /* Footer: the ask */
   .foot {
     margin-top: auto;
-    padding: 0.34in 0.6in 0.5in;
+    padding: 0.38in 0.6in 0.5in;
     display: grid;
     grid-template-columns: 1fr auto;
     gap: 0.4in;
-    align-items: end;
+    align-items: start;
     border-top: 1.5px solid var(--edge);
   }
 
-  .claim { display: flex; flex-direction: column; gap: 10px; }
+  .claim { display: flex; flex-direction: column; gap: 12px; padding-top: 2px; }
   .claim .free {
     font-family: "Limelight", Georgia, serif;
     font-size: 27px;
@@ -199,12 +199,14 @@
   }
 
   /* Small screens: scale the fixed-size sheet down rather than reflow it —
-     a flyer is a fixed artifact, and reflowing it would misrepresent print. */
-  @media (max-width: 950px) {
+     a flyer is a fixed artifact, and reflowing it would misrepresent print.
+     Guarded to `screen`: the print viewport is 816px wide, so an unguarded
+     max-width query would shrink the sheet to 62% on paper. */
+  @media screen and (max-width: 950px) {
     .stage { padding: 16px 8px 40px; }
     .sheet { transform: scale(.62); transform-origin: top center; margin-bottom: -4.2in; }
   }
-  @media (max-width: 620px) {
+  @media screen and (max-width: 620px) {
     .sheet { transform: scale(.42); margin-bottom: -6.4in; }
   }
 </style>
