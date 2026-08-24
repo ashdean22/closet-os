@@ -2,7 +2,11 @@
 // Call BEFORE spending any Anthropic/Gemini credits.
 
 export const DAILY_TAG_LIMIT = 30;
-export const DAILY_OUTFIT_LIMIT = 20;
+// A single search now spends two requests, not one: the client asks for one
+// look, shows it, and prefetches two more so Refresh is instant. The user-facing
+// budget is unchanged at ~20 searches a day — and each request is cheaper than
+// it was, since compact candidates with short ids roughly halved the input.
+export const DAILY_OUTFIT_LIMIT = 40;
 
 type UsageAction = "tag" | "outfit";
 

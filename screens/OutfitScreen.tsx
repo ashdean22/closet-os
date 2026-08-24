@@ -71,6 +71,24 @@ type OutfitResult = {
   message: string;
 };
 
+type FetchOpts = {
+  append?: boolean;
+  silent?: boolean;
+  excludeItemIds?: string[];
+  variations?: number;
+};
+
+/**
+ * What the spinner says. The stages are honest about the pipeline — retrieval
+ * really does finish in about a second and the rest is the model writing — and
+ * a wait you can watch move is shorter than the same wait spent wondering.
+ */
+function loadingStage(seconds: number): string {
+  if (seconds < 2) return "Reading your closet…";
+  if (seconds < 5) return "Pairing pieces…";
+  return "Writing the reasons…";
+}
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function OutfitScreen() {
@@ -96,9 +114,19 @@ export default function OutfitScreen() {
   // so instead of quietly creating duplicates.
   const [savedIndices, setSavedIndices] = useState<Set<number>>(new Set());
   const [savingLook, setSavingLook] = useState(false);
+  // Seconds spent waiting on the current search, so the spinner can say
+  // something true about where the time is going.
+  const [elapsed, setElapsed] = useState(0);
   // One-time hint on the first visit. Shows what a good query looks like —
   // "describe the day, not the clothes" is the part people get wrong.
   const [showCoach, setShowCoach] = useState(false);
+
+  // Bumped on every fresh search. A background prefetch or a double-tapped
+  // Find that lands after a newer search started must not merge into it.
+  const searchGen = useRef(0);
+  // fetchOutfits calls itself to prefetch, which a useCallback can't do
+  // directly — the binding doesn't exist yet inside its own body.
+  const fetchRef = useRef<((opts?: FetchOpts) => Promise<void>) | null>(null);
 
   // Guards against setState after unmount (suspect #3). The screen normally
   // stays mounted across tab switches, but this keeps the async path safe.
@@ -128,28 +156,40 @@ export default function OutfitScreen() {
   const canSearch = query.trim().length > 0 || anchor !== null;
 
   /**
-   * One request path for the first search and for "give me more looks".
+   * One request path for the first search, for the background prefetch, and for
+   * "give me more looks".
    *
    * `excludeItemIds` is how a server-side refresh gets a genuinely different
    * batch. It carries only the pieces from the batch the user just rejected,
    * not everything ever shown — excluding the full history would starve
    * retrieval in a small wardrobe after two or three refreshes.
+   *
+   * `silent` is the prefetch: no spinner, no error state, no index jump. It
+   * fills the Refresh queue behind the user's back while they read look one.
    */
   const fetchOutfits = useCallback(
     async ({
       append = false,
+      silent = false,
       excludeItemIds = [],
-    }: { append?: boolean; excludeItemIds?: string[] } = {}) => {
+      variations = 1,
+    }: FetchOpts = {}) => {
+      // A fresh search invalidates everything in flight; an append inherits the
+      // generation of the search it belongs to.
+      const gen = append ? searchGen.current : ++searchGen.current;
+      const stale = () => searchGen.current !== gen || !mounted.current;
+
       if (!append) {
         Keyboard.dismiss();
         setLoading(true);
+        setElapsed(0);
         setResult(null);
         setIndex(0);
         setSavedIndices(new Set());
-      } else {
+      } else if (!silent) {
         setRefreshing(true);
       }
-      setError(null);
+      if (!silent) setError(null);
 
       try {
         const invoke = (exclude: string[]) =>
@@ -158,7 +198,7 @@ export default function OutfitScreen() {
               query: query.trim(),
               anchor_item_id: anchor?.id ?? null,
               exclude_item_ids: exclude,
-              variations: 3,
+              variations,
             },
           });
 
@@ -197,40 +237,91 @@ export default function OutfitScreen() {
         // Exclusions can empty the candidate pool in a small closet. Rather
         // than dead-end the refresh, ask once more with no exclusions — a
         // repeated look beats "nothing left".
-        if (normalized.variations.length === 0 && excludeItemIds.length > 0) {
+        // Not for a prefetch: nobody is waiting on it, so an empty answer is a
+        // short queue rather than a dead end, and spending a second request to
+        // fill it would double the cost of a search in a small wardrobe.
+        if (!silent && normalized.variations.length === 0 && excludeItemIds.length > 0) {
           const retry = await invoke([]);
           if (!retry.error && retry.data) {
             normalized = normalizeOutfitResult(retry.data) ?? normalized;
           }
         }
 
-        if (!mounted.current) return;
+        if (stale()) return;
 
-        if (append && result) {
-          const merged = [...result.variations, ...normalized.variations];
-          setResult({ ...normalized, variations: merged });
-          // Jump to the first newly-fetched look, or stay put if none came back.
-          setIndex(
-            normalized.variations.length > 0
-              ? result.variations.length
-              : Math.min(index, merged.length - 1),
+        if (append) {
+          setResult((prev) =>
+            prev
+              ? { ...prev, variations: [...prev.variations, ...normalized.variations] }
+              : normalized,
           );
+          // Refresh only calls the server from the last look in the batch, so
+          // "the first new look" is always the next index along. A prefetch
+          // stays put — the user is still reading look one.
+          if (!silent && normalized.variations.length > 0) {
+            setIndex((i) => i + 1);
+            const latest = normalized.variations[0];
+            void fetchRef.current?.({
+              append: true,
+              silent: true,
+              variations: 2,
+              excludeItemIds: [
+                ...excludeItemIds,
+                ...latest.outfit
+                  .filter((piece) => !piece.is_anchor)
+                  .map((piece) => piece.item_id),
+              ],
+            });
+          }
         } else {
           setResult(normalized);
           setIndex(0);
+
+          // ── Prefetch the rest of the batch ────────────────────────────
+          // The wait the user feels is the model writing looks, and it writes
+          // them one after another: three take ~22s, one takes ~9s. So we ask
+          // for one, put it on screen, and fetch the other two while they read
+          // it. By the time anyone taps Refresh the queue is usually full.
+          const first = normalized.variations[0];
+          if (first) {
+            const exclude = first.outfit
+              .filter((piece) => !piece.is_anchor)
+              .map((piece) => piece.item_id);
+            void fetchRef.current?.({
+              append: true,
+              silent: true,
+              variations: 2,
+              excludeItemIds: exclude,
+            });
+          }
         }
       } catch (err) {
         const raw = err instanceof Error ? err.message : String(err);
-        if (mounted.current) setError(friendlyOutfitError(raw));
+        if (silent) {
+          console.warn("[find-outfit] prefetch failed:", raw);
+        } else if (!stale()) {
+          setError(friendlyOutfitError(raw));
+        }
       } finally {
-        if (mounted.current) {
+        if (mounted.current && !silent) {
           setLoading(false);
           setRefreshing(false);
         }
       }
     },
-    [anchor, index, query, result],
+    [anchor, query],
   );
+
+  useEffect(() => {
+    fetchRef.current = fetchOutfits;
+  }, [fetchOutfits]);
+
+  // Ticks only while the first look is being built.
+  useEffect(() => {
+    if (!loading) return;
+    const id = setInterval(() => setElapsed((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [loading]);
 
   const handleFind = useCallback(() => {
     if (!canSearch) return;
@@ -238,9 +329,10 @@ export default function OutfitScreen() {
   }, [canSearch, fetchOutfits]);
 
   /**
-   * Refresh is free while unseen looks remain in the batch — the server already
-   * returned three, so swapping between them costs nothing and doesn't spend a
-   * request against the daily outfit cap. Only an exhausted batch hits the API.
+   * Refresh is free while unseen looks remain in the batch — the search fetches
+   * one look and prefetches two more, so swapping between them costs nothing
+   * and doesn't spend a request against the daily outfit cap. Only an exhausted
+   * batch hits the API.
    */
   const handleRefresh = useCallback(() => {
     if (!result || refreshing) return;
@@ -258,7 +350,7 @@ export default function OutfitScreen() {
         ),
       ),
     ];
-    fetchOutfits({ append: true, excludeItemIds: exclude });
+    fetchOutfits({ append: true, excludeItemIds: exclude, variations: 1 });
   }, [fetchOutfits, index, refreshing, result]);
 
   /**
@@ -426,10 +518,15 @@ export default function OutfitScreen() {
 
             {/* ── Loading state ──────────────────────────────────────────── */}
             {loading && (
-              <View className="items-center py-16 gap-4">
+              <View className="items-center py-16 gap-2">
                 <ActivityIndicator size="large" color={colors.rust} />
-                <Text className="text-ink-soft text-base font-medium">
-                  Finding your outfits…
+                <Text className="text-ink-soft text-base font-medium mt-2">
+                  {loadingStage(elapsed)}
+                </Text>
+                <Text className="text-ink-faint text-xs">
+                  {elapsed < 15
+                    ? "Usually about 10 seconds."
+                    : "Taking longer than usual — hang tight."}
                 </Text>
               </View>
             )}

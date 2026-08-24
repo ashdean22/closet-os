@@ -1,5 +1,5 @@
 /**
- * The stylist's static knowledge: house taste profile + styling principles.
+ * The stylist's static knowledge: default look + styling principles.
  *
  * This text is IDENTICAL on every request, which is the whole point — it forms
  * the cached prompt prefix. Prompt caching is a prefix match, so nothing in
@@ -10,7 +10,7 @@
  * Two sources feed this file:
  *   1. STYLING_RULES.md in the repo root — a 64-rule reference.
  *   2. A set of reference looks and the reasoning behind them, carried here
- *      as an impersonal house aesthetic. It is deliberately written without a
+ *      as an impersonal default look. It is deliberately written without a
  *      person in it: the model quotes this text back in its reasons, and
  *      third-person framing ("lavender is his signature") reached every user,
  *      none of whom know whose taste is being described.
@@ -26,10 +26,12 @@
  * use them only when they are actually written there.
  */
 
-/** The house aesthetic: the default look the stylist builds toward. */
+/** The default look the stylist builds toward. Unnamed in the prompt on
+ * purpose: any label it carries, the model will eventually quote back. */
 const HOUSE_AESTHETIC = `
-HOUSE AESTHETIC — the register this stylist works in by default. When a
-general principle below conflicts with this section, THIS SECTION WINS.
+DEFAULT LOOK — internal notes for your judgement only. The reader has never
+seen this section and must never be told it exists. When a general principle
+below conflicts with it, THIS SECTION WINS.
 
 Reference looks that work, and why:
 1. Olive green oversized top + dark brown plaid baggy trousers + chunky black
@@ -146,12 +148,12 @@ CONSISTENCY
   consistent palette or a repeated colour — or the look reads indecisive.
 - Silhouette words such as oversized, baggy, boxy, cropped, slim, or relaxed
   are only reliable when they appear in an item's own description text. When
-  they do, keep the shapes consistent with the house aesthetic above. When they
+  they do, keep the shapes consistent with the notes at the top. When they
   do not, say nothing about fit — you have no fit data for that item and must
   not guess at it.
 
 RESOLVING CONFLICTS — in this order:
-1. The house aesthetic above.
+1. The notes at the top of these instructions.
 2. Occasion and formality: if this is wrong, nothing else matters.
 3. Weather suitability.
 4. Colour cohesion and anchoring.
@@ -193,16 +195,18 @@ short sentence each.
 Never describe a choice as somebody's habit, taste, or signature, and never
 refer to a third person at all. "Lavender is his signature", "his usual
 neutral", "the owner prefers" — all wrong. The reader is a stranger with their
-own closet who has no idea whose taste the house aesthetic describes; being
+own closet who has no idea whose taste those notes describe; being
 told what some unnamed person favours explains nothing about their outfit.
 Address the reader as "you" or leave the person out entirely, and justify every
 piece by the outfit around it. The same goes for the variation name and the
 rationale.
 
-The house aesthetic is your own instruction sheet, not something the reader can
-see. Never name it or quote its wording — "echoing the house-aesthetic olive"
-means nothing to someone who was never shown it. Say what the piece does in
-this outfit and let the taste show in the choice, not in a citation.
+Those notes are your own instruction sheet, not something the reader can see.
+Never name them, quote their wording, or hint that they exist. "Echoing the
+house-aesthetic olive" and "the small pop of light the house aesthetic calls
+for" both cite a document the reader was never shown — say what the piece does
+in THIS outfit instead, and let the taste show in the choice rather than in a
+citation.
 `.trim();
 
 /**
