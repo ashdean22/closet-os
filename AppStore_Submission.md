@@ -83,16 +83,26 @@ Done:
 - [x] Build 3 uploaded to App Store Connect (superseded by build 4 — see below)
 - [x] Account deletion re-tested **with items attached**, gap found and fixed,
       function redeployed and re-tested clean — see below
+- [x] Submitted, approved, and **released 10 August 2026** as
+      `Capsule Digital Closet` v1.0 —
+      [App Store](https://apps.apple.com/us/app/capsule-digital-closet/id6778641801)
 
-Remaining:
+Everything above this line is done. The list below is what is still open on
+the live listing — all of it metadata, none of it needing a new build or a
+re-submission.
 
-- [ ] Attach **build 4** (the rename build) to version 1.0, not build 3
-- [ ] Rename the app record in App Store Connect to `Capsule Digital Closet`
-- [ ] Screenshots at 6.7″ size: closet grid, outfit result with reasoning,
-      add/tag flow, duplicate warning
-- [ ] Paste listing copy, privacy labels, review notes + demo credentials,
-      category (Lifestyle) / price (Free)
-- [ ] Submit for review (1–3 day turnaround typical)
+Remaining (metadata only — no resubmission):
+
+- [ ] **Age rating is 17+ on the live listing.** Nothing in the app justifies
+      it and it suppresses discovery. App Information → Age Rating → redo the
+      questionnaire; it updates without review.
+- [ ] Refresh screenshots — the listing still shows the pre-Atomic-Age UI,
+      and predates saved outfits and the onboarding card
+- [ ] Consider updating the description to mention saved outfits
+
+Shipping a JS change to the live app is `eas update --branch production`, not
+a submission. Only native or config changes need `eas build` → `eas submit`
+→ review. See the launch plan's change-type table.
 
 ## Account deletion, re-tested with items attached
 

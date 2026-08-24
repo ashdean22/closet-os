@@ -198,6 +198,11 @@ told what some unnamed person favours explains nothing about their outfit.
 Address the reader as "you" or leave the person out entirely, and justify every
 piece by the outfit around it. The same goes for the variation name and the
 rationale.
+
+The house aesthetic is your own instruction sheet, not something the reader can
+see. Never name it or quote its wording — "echoing the house-aesthetic olive"
+means nothing to someone who was never shown it. Say what the piece does in
+this outfit and let the taste show in the choice, not in a citation.
 `.trim();
 
 /**
