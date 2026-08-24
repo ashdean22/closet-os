@@ -1,0 +1,270 @@
+<title>Capsule Street Flyer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Limelight&family=Jost:wght@300;400;500;600&display=swap">
+<style>
+  /* Capsule "Atomic Age" tokens, mirrored from lib/theme.ts — the app's own
+     system, not a new one. A print piece commits to one visual world, so this
+     page paints every colour explicitly and does not follow the host theme. */
+  :root {
+    --ground:  #F2E9DA;
+    --surface: #FCF8F1;
+    --sunken:  #EAE0CE;
+    --edge:    #DCCDB4;
+    --ink:     #1B333B;
+    --ink-soft:#5A7078;
+    --rust:    #C0521F;
+    --teal:    #2A6F84;
+    --teal-deep:#1B4E5E;
+    --brass:   #C9A05E;
+    --sheet-w: 8.5in;
+    --sheet-h: 11in;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--sunken);
+    color: var(--ink);
+    font-family: "Jost", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    padding: 28px 16px 56px;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: var(--sheet-w);
+    color: var(--ink-soft);
+    font-size: 13px;
+    letter-spacing: .02em;
+  }
+
+  .toolbar button {
+    font: 500 13px/1 "Jost", system-ui, sans-serif;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--surface);
+    background: var(--rust);
+    border: none;
+    border-radius: 2px;
+    padding: 10px 18px;
+    cursor: pointer;
+  }
+  .toolbar button:hover { background: #9C4118; }
+  .toolbar button:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+
+  /* ── The sheet ─────────────────────────────────────────────────────── */
+  .sheet {
+    width: var(--sheet-w);
+    height: var(--sheet-h);
+    background: var(--ground);
+    box-shadow: 0 18px 50px rgba(27,51,59,.28);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Masthead */
+  .masthead {
+    background: var(--teal-deep);
+    color: var(--ground);
+    padding: 0.46in 0.6in 0.4in;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  .wordmark {
+    font-family: "Limelight", Georgia, serif;
+    font-size: 46px;
+    line-height: .9;
+    letter-spacing: .01em;
+  }
+  .masthead .tagline {
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: #A9C6CE;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  main { padding: 0.5in 0.6in 0; display: flex; flex-direction: column; gap: 0.34in; }
+
+  h1 {
+    font-family: "Limelight", Georgia, serif;
+    font-weight: 400;
+    font-size: 63px;
+    line-height: 1.02;
+    letter-spacing: -0.005em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h1 em { font-style: normal; color: var(--rust); }
+
+  .deck {
+    font-size: 20px;
+    line-height: 1.45;
+    font-weight: 300;
+    max-width: 30ch;
+    margin: 0;
+    color: var(--ink);
+  }
+
+  /* The three steps are a real sequence — you cannot ask before you shoot —
+     so they are numbered. */
+  .steps { display: flex; flex-direction: column; gap: 15px; margin: 0; padding: 0; list-style: none; }
+  .step { display: grid; grid-template-columns: 30px 1fr; gap: 14px; align-items: start; }
+  .step .n {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    color: var(--rust);
+    border: 1.5px solid var(--brass);
+    border-radius: 2px;
+    text-align: center;
+    padding: 5px 0 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .step h2 { font-size: 18px; font-weight: 600; margin: 2px 0 3px; letter-spacing: .005em; }
+  .step p { margin: 0; font-size: 15.5px; line-height: 1.45; color: var(--ink-soft); font-weight: 300; }
+  .step p .said { color: var(--teal); font-weight: 400; }
+
+  /* Footer: the ask */
+  .foot {
+    margin-top: auto;
+    padding: 0.34in 0.6in 0.5in;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.4in;
+    align-items: end;
+    border-top: 1.5px solid var(--edge);
+  }
+
+  .claim { display: flex; flex-direction: column; gap: 10px; }
+  .claim .free {
+    font-family: "Limelight", Georgia, serif;
+    font-size: 27px;
+    color: var(--teal);
+    line-height: 1;
+  }
+  .claim p { margin: 0; font-size: 15px; line-height: 1.5; font-weight: 300; color: var(--ink-soft); max-width: 34ch; }
+  .claim .link { font-size: 13.5px; color: var(--ink); letter-spacing: .01em; font-weight: 400; }
+
+  .qr-card {
+    background: var(--surface);
+    border: 2px solid var(--rust);
+    border-radius: 3px;
+    padding: 14px 14px 11px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 9px;
+    width: 2.35in;
+  }
+  .qr-card svg { width: 100%; height: auto; display: block; shape-rendering: crispEdges; }
+  .qr-card .cta {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--rust);
+    text-align: center;
+    line-height: 1.35;
+  }
+
+  /* ── Print ─────────────────────────────────────────────────────────── */
+  @page { size: letter portrait; margin: 0; }
+  @media print {
+    body { background: #fff; }
+    .stage { padding: 0; gap: 0; }
+    .toolbar { display: none; }
+    .sheet { box-shadow: none; width: 100%; height: 100vh; }
+    /* Cream ground and teal masthead must survive the print dialog. */
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+
+  /* Small screens: scale the fixed-size sheet down rather than reflow it —
+     a flyer is a fixed artifact, and reflowing it would misrepresent print. */
+  @media (max-width: 950px) {
+    .stage { padding: 16px 8px 40px; }
+    .sheet { transform: scale(.62); transform-origin: top center; margin-bottom: -4.2in; }
+  }
+  @media (max-width: 620px) {
+    .sheet { transform: scale(.42); margin-bottom: -6.4in; }
+  }
+</style>
+
+<div class="stage">
+  <div class="toolbar">
+    <button type="button" onclick="window.print()">Print flyer</button>
+    <span>US Letter, portrait &middot; prints edge to edge &middot; keep "Background graphics" on in the print dialog</span>
+  </div>
+
+  <div class="sheet">
+    <header class="masthead">
+      <div class="wordmark">Capsule</div>
+      <div class="tagline">Digital&nbsp;Closet<br>iPhone &middot; Free</div>
+    </header>
+
+    <main>
+      <h1>You already own<br><em>tomorrow's outfit.</em></h1>
+
+      <p class="deck">Capsule photographs your clothes, tags them, and builds looks out of what is actually hanging in your closet.</p>
+
+      <ol class="steps">
+        <li class="step">
+          <div class="n">1</div>
+          <div>
+            <h2>Photograph each piece once</h2>
+            <p>One shot per garment. No forms to fill in — colour, fabric and how dressy it reads are worked out for you.</p>
+          </div>
+        </li>
+        <li class="step">
+          <div class="n">2</div>
+          <div>
+            <h2>Describe the day, not the clothes</h2>
+            <p><span class="said">&ldquo;65&deg; and rainy, job interview.&rdquo;</span> The occasion, the weather, the mood.</p>
+          </div>
+        </li>
+        <li class="step">
+          <div class="n">3</div>
+          <div>
+            <h2>Get a full look, and the reasoning</h2>
+            <p>Top, bottom, shoes — from your own closet, with a line on why each piece works with the others. Keep the ones you like.</p>
+          </div>
+        </li>
+      </ol>
+    </main>
+
+    <footer class="foot">
+      <div class="claim">
+        <div class="free">Free. No ads.</div>
+        <p>It will not sell you clothes. The whole point is wearing what you already own in ways you had not thought of.</p>
+        <div class="link">apps.apple.com/app/id6778641801</div>
+      </div>
+
+      <div class="qr-card">
+        <svg viewBox="-2 -2 41 41" role="img" aria-label="QR code linking to Capsule Digital Closet on the App Store">
+          <rect x="-2" y="-2" width="41" height="41" fill="#FCF8F1"></rect>
+          <path stroke="#1B333B" d="M0 0.5h7m1 0h1m4 0h1m1 0h1m2 0h1m3 0h2m2 0h3m1 0h7M0 1.5h1m5 0h1m2 0h3m1 0h1m1 0h1m1 0h2m2 0h2m1 0h5m1 0h1m5 0h1M0 2.5h1m1 0h3m1 0h1m2 0h1m1 0h5m1 0h1m5 0h1m2 0h1m3 0h1m1 0h3m1 0h1M0 3.5h1m1 0h3m1 0h1m1 0h2m2 0h5m2 0h3m1 0h1m1 0h1m1 0h1m2 0h1m1 0h3m1 0h1M0 4.5h1m1 0h3m1 0h1m2 0h1m8 0h1m3 0h1m4 0h2m1 0h1m1 0h3m1 0h1M0 5.5h1m5 0h1m2 0h2m9 0h1m1 0h4m1 0h2m1 0h1m5 0h1M0 6.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M9 7.5h1m1 0h3m1 0h5m1 0h6m1 0h1M2 8.5h1m1 0h3m1 0h1m2 0h1m4 0h2m2 0h1m1 0h2m2 0h4m3 0h1m2 0h1M0 9.5h2m1 0h3m3 0h6m2 0h2m7 0h3m2 0h1m1 0h4M0 10.5h3m1 0h3m2 0h2m3 0h1m1 0h3m1 0h1m1 0h1m1 0h2m1 0h2m1 0h4m2 0h1M2 11.5h1m1 0h2m2 0h2m1 0h1m1 0h2m2 0h4m3 0h3m1 0h2m1 0h1M0 12.5h2m1 0h2m1 0h1m1 0h1m1 0h2m3 0h1m1 0h2m1 0h1m1 0h4m1 0h5m2 0h2M1 13.5h1m5 0h1m1 0h1m2 0h1m2 0h1m1 0h1m2 0h2m2 0h1m3 0h1m1 0h1m2 0h2m1 0h1M1 14.5h2m1 0h3m1 0h1m3 0h2m1 0h2m1 0h1m1 0h6m4 0h1m1 0h1m1 0h3M0 15.5h1m1 0h3m3 0h2m5 0h1m4 0h1m4 0h1m1 0h1m1 0h1m1 0h1m3 0h1M2 16.5h1m1 0h1m1 0h1m2 0h2m2 0h3m2 0h1m1 0h1m1 0h1m2 0h1m1 0h5m1 0h1m2 0h1M0 17.5h2m2 0h2m3 0h1m3 0h2m3 0h2m2 0h1m1 0h2m2 0h1m1 0h1m2 0h1m1 0h2M0 18.5h3m3 0h2m2 0h1m1 0h2m1 0h1m1 0h3m2 0h2m2 0h1m1 0h1m1 0h4m1 0h2M0 19.5h1m4 0h1m4 0h2m1 0h3m2 0h2m1 0h2m2 0h1m1 0h3m1 0h1m1 0h1M0 20.5h2m4 0h3m1 0h3m1 0h2m1 0h2m2 0h2m1 0h5m1 0h2m3 0h1M1 21.5h1m7 0h1m3 0h2m5 0h2m1 0h2m4 0h2m3 0h2M3 22.5h1m1 0h3m1 0h2m1 0h2m3 0h1m1 0h2m1 0h4m2 0h2m2 0h2m2 0h1M0 23.5h3m6 0h3m1 0h3m1 0h5m1 0h1m5 0h2m4 0h1M0 24.5h3m1 0h6m2 0h3m1 0h1m2 0h2m2 0h2m2 0h1m1 0h1m2 0h1M2 25.5h3m3 0h3m4 0h4m2 0h1m1 0h3m1 0h1m1 0h1m2 0h2m1 0h2M0 26.5h1m2 0h1m2 0h1m1 0h1m1 0h1m4 0h2m4 0h4m1 0h1m3 0h1m2 0h4M1 27.5h2m2 0h1m2 0h1m1 0h1m2 0h2m1 0h1m4 0h1m2 0h4m2 0h1m1 0h2m2 0h1M0 28.5h1m2 0h4m1 0h1m1 0h1m2 0h1m2 0h1m3 0h1m2 0h1m1 0h1m2 0h5m1 0h2M8 29.5h1m1 0h2m2 0h3m3 0h1m1 0h7m3 0h1m3 0h1M0 30.5h7m2 0h2m4 0h3m1 0h1m3 0h1m1 0h4m1 0h1m1 0h1m1 0h3M0 31.5h1m5 0h1m1 0h1m1 0h3m8 0h1m1 0h4m1 0h1m3 0h1m2 0h1M0 32.5h1m1 0h3m1 0h1m1 0h1m3 0h1m2 0h1m1 0h1m7 0h1m2 0h6m2 0h1M0 33.5h1m1 0h3m1 0h1m2 0h1m1 0h1m3 0h1m1 0h1m1 0h1m3 0h1m4 0h2m2 0h1m1 0h1M0 34.5h1m1 0h3m1 0h1m1 0h1m4 0h1m1 0h2m2 0h4m2 0h3m1 0h1m1 0h2m3 0h1M0 35.5h1m5 0h1m2 0h3m3 0h2m3 0h1m1 0h2m3 0h3m5 0h1M0 36.5h7m6 0h1m1 0h1m5 0h2m1 0h5m1 0h1m1 0h1m2 0h2"></path>
+        </svg>
+        <div class="cta">Point your camera<br>&rarr; App Store</div>
+      </div>
+    </footer>
+  </div>
+</div>
