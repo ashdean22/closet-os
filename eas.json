@@ -25,6 +25,10 @@
         "serviceAccountKeyPath": "./credentials/play-service-account.json",
         "track": "internal",
         "releaseStatus": "completed"
+      },
+      "ios": {
+        "ascAppId": "6778641801",
+        "appleTeamId": "T6D75YG5A2"
       }
     }
   }
