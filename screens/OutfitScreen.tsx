@@ -21,6 +21,7 @@ import SavedOutfitsList from "../components/SavedOutfitsList";
 import { saveOutfit } from "../lib/savedOutfits";
 import { hasSeen, markSeen } from "../lib/onboarding";
 import { supabase } from "../lib/supabase";
+import { invokeFunction } from "../lib/invokeFunction";
 import { colors, fonts, tracking } from "../lib/theme";
 import { readFunctionError } from "../lib/functionErrors";
 
@@ -193,7 +194,7 @@ export default function OutfitScreen() {
 
       try {
         const invoke = (exclude: string[]) =>
-          supabase.functions.invoke<unknown>("find-outfit", {
+          invokeFunction<unknown>("find-outfit", {
             body: {
               query: query.trim(),
               anchor_item_id: anchor?.id ?? null,

@@ -11,6 +11,7 @@ import {
 import ScreenWrapper from "../components/ScreenWrapper";
 import DecoHeader from "../components/DecoHeader";
 import { supabase } from "../lib/supabase";
+import { invokeFunction } from "../lib/invokeFunction";
 import { colors, fonts, tracking } from "../lib/theme";
 import { readFunctionError } from "../lib/functionErrors";
 import appJson from "../app.json";
@@ -56,7 +57,7 @@ export default function SettingsScreen({ email }: Props) {
   const handleDeleteAccount = async () => {
     setDeleting(true);
     try {
-      const { error } = await supabase.functions.invoke("delete-account", {
+      const { error } = await invokeFunction("delete-account", {
         body: {},
       });
 

@@ -13,6 +13,7 @@ import ScreenWrapper from "../components/ScreenWrapper";
 import DecoHeader from "../components/DecoHeader";
 import StarterProgress from "../components/StarterProgress";
 import { supabase } from "../lib/supabase";
+import { invokeFunction } from "../lib/invokeFunction";
 import { colors, fonts, tracking } from "../lib/theme";
 import { readFunctionError, type FunctionErrorDetail } from "../lib/functionErrors";
 
@@ -133,7 +134,7 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
         .getPublicUrl(path);
 
       // 3. Call tag-item Edge Function
-      const { data: tagData, error: tagError } = await supabase.functions.invoke<ItemTags>(
+      const { data: tagData, error: tagError } = await invokeFunction<ItemTags>(
         "tag-item",
         { body: { image_url: publicUrl } },
       );
@@ -181,7 +182,7 @@ export default function HomeScreen({ onNavigateToCloset }: Props) {
 
       // 5. Embed the description (awaited — item must be vectorised before
       //    duplicate check runs, since find_similar_items compares embeddings)
-      const { error: embedError } = await supabase.functions.invoke("embed-item", {
+      const { error: embedError } = await invokeFunction("embed-item", {
         body: { item_id: newItem.id },
       });
       if (embedError) {
