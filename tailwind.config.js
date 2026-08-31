@@ -82,6 +82,15 @@ module.exports = {
         },
       },
 
+      // Mirrors `radius` in lib/theme.ts.
+      borderRadius: {
+        sm: "9px",
+        DEFAULT: "14px",
+        md: "14px",
+        lg: "20px",
+        full: "9999px",
+      },
+
       fontFamily: {
         // Names must match the keys registered with useFonts in App.tsx.
         display: ["FascinateInline"],

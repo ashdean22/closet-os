@@ -11,7 +11,7 @@ import {
   Platform,
   KeyboardAvoidingView,
 } from "react-native";
-import { colors, fonts, tracking } from "../lib/theme";
+import { colors, fonts, radius, tracking } from "../lib/theme";
 import {
   listSavedOutfits,
   renameSavedOutfit,
@@ -237,13 +237,13 @@ function ThumbStrip({ pieces }: { pieces: SavedPiece[] }) {
           <Image
             key={piece.id}
             source={{ uri: piece.item.image_url }}
-            style={{ width: 56, height: 56, borderRadius: 4 }}
+            style={{ width: 56, height: 56, borderRadius: radius.md }}
             resizeMode="cover"
           />
         ) : (
           <View
             key={piece.id}
-            style={{ width: 56, height: 56, borderRadius: 4 }}
+            style={{ width: 56, height: 56, borderRadius: radius.md }}
             className="bg-sunken items-center justify-center"
           >
             <Text className="text-ink-faint text-[9px] text-center px-1">Removed</Text>
@@ -262,12 +262,12 @@ function SavedPieceRow({ piece }: { piece: SavedPiece }) {
       {item?.image_url ? (
         <Image
           source={{ uri: item.image_url }}
-          style={{ width: 64, height: 64, borderRadius: 4 }}
+          style={{ width: 64, height: 64, borderRadius: radius.md }}
           resizeMode="cover"
         />
       ) : (
         <View
-          style={{ width: 64, height: 64, borderRadius: 4 }}
+          style={{ width: 64, height: 64, borderRadius: radius.md }}
           className="bg-sunken items-center justify-center"
         >
           <Text className="text-ink-faint text-[10px]">Gone</Text>
@@ -378,7 +378,7 @@ function RenameModal({
               style={{
                 borderWidth: 1,
                 borderColor: colors.edge,
-                borderRadius: 4,
+                borderRadius: radius.md,
                 paddingHorizontal: 14,
                 paddingVertical: 12,
                 fontSize: 16,

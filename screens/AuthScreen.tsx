@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
-import { colors, fonts, tracking } from "../lib/theme";
+import { colors, fonts, radius, tracking } from "../lib/theme";
 
 type Mode = "signin" | "signup";
 
@@ -21,7 +21,7 @@ type Mode = "signin" | "signup";
 const inputStyle = {
   borderWidth: 1,
   borderColor: colors.edge,
-  borderRadius: 4,
+  borderRadius: radius.md,
   paddingHorizontal: 16,
   paddingVertical: 14,
   fontSize: 16,
@@ -160,7 +160,7 @@ export default function AuthScreen() {
           activeOpacity={0.85}
           style={{
             backgroundColor: colors.rust,
-            borderRadius: 4,
+            borderRadius: radius.md,
             paddingHorizontal: 32,
             paddingVertical: 14,
           }}
@@ -233,7 +233,7 @@ export default function AuthScreen() {
           {/* Mode toggle */}
           <View
             className="flex-row p-1 mb-6"
-            style={{ backgroundColor: colors.tealDeep, borderRadius: 4, borderWidth: 1, borderColor: colors.teal }}
+            style={{ backgroundColor: colors.tealDeep, borderRadius: radius.md, borderWidth: 1, borderColor: colors.teal }}
           >
             {(["signin", "signup"] as Mode[]).map((m) => (
               <TouchableOpacity
@@ -241,7 +241,7 @@ export default function AuthScreen() {
                 onPress={() => switchMode(m)}
                 className="flex-1 py-2.5 items-center"
                 style={{
-                  borderRadius: 2,
+                  borderRadius: radius.sm,
                   backgroundColor: mode === m ? colors.ground : "transparent",
                 }}
               >
@@ -294,7 +294,7 @@ export default function AuthScreen() {
                 backgroundColor: colors.dangerTint,
                 borderWidth: 1,
                 borderColor: colors.dangerEdge,
-                borderRadius: 4,
+                borderRadius: radius.md,
                 paddingHorizontal: 16,
                 paddingVertical: 12,
                 marginBottom: 16,
@@ -311,7 +311,7 @@ export default function AuthScreen() {
             disabled={loading}
             style={{
               backgroundColor: loading ? colors.rustMuted : colors.rust,
-              borderRadius: 4,
+              borderRadius: radius.md,
               paddingVertical: 16,
               alignItems: "center",
               flexDirection: "row",

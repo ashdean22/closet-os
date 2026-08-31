@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, Text } from "react-native";
 import { supabase } from "../lib/supabase";
-import { colors, fonts, tracking } from "../lib/theme";
+import { colors, fonts, radius, tracking } from "../lib/theme";
 import { STARTER_GOAL } from "../lib/onboarding";
 
 /**
@@ -56,13 +56,13 @@ export default function StarterProgress({ refreshKey }: { refreshKey: number }) 
       </View>
 
       {/* Track + fill */}
-      <View style={{ height: 4, backgroundColor: colors.sunken, borderRadius: 2 }}>
+      <View style={{ height: 4, backgroundColor: colors.sunken, borderRadius: radius.pill }}>
         <View
           style={{
             height: 4,
             width: `${pct * 100}%`,
             backgroundColor: colors.brass,
-            borderRadius: 2,
+            borderRadius: radius.pill,
           }}
         />
       </View>

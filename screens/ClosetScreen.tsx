@@ -13,7 +13,7 @@ import ScreenWrapper from "../components/ScreenWrapper";
 import ItemDetailModal, { type DetailItem } from "../components/ItemDetailModal";
 import ClosetFilterBar from "../components/ClosetFilterBar";
 import { supabase } from "../lib/supabase";
-import { colors, fonts, tracking } from "../lib/theme";
+import { colors, fonts, radius, tracking } from "../lib/theme";
 import {
   EMPTY_FILTERS,
   filterItems,
@@ -253,7 +253,7 @@ function ItemCard({
 }) {
   return (
     <TouchableOpacity
-      style={{ flex: 1, borderRadius: 4 }}
+      style={{ flex: 1, borderRadius: radius.md }}
       activeOpacity={0.85}
       onPress={() => onPress(item)}
       className="bg-surface overflow-hidden border border-edge"

@@ -22,7 +22,7 @@ import { saveOutfit } from "../lib/savedOutfits";
 import { hasSeen, markSeen } from "../lib/onboarding";
 import { supabase } from "../lib/supabase";
 import { invokeFunction } from "../lib/invokeFunction";
-import { colors, fonts, tracking } from "../lib/theme";
+import { colors, fonts, radius, tracking } from "../lib/theme";
 import { readFunctionError } from "../lib/functionErrors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -473,7 +473,7 @@ export default function OutfitScreen() {
                 style={{
                   borderWidth: 1,
                   borderColor: colors.edge,
-                  borderRadius: 4,
+                  borderRadius: radius.md,
                   paddingHorizontal: 16,
                   paddingVertical: 14,
                   fontSize: 16,
@@ -631,7 +631,7 @@ function ModeToggle({
       className="flex-row p-1"
       style={{
         backgroundColor: colors.sunken,
-        borderRadius: 4,
+        borderRadius: radius.md,
         borderWidth: 1,
         borderColor: colors.edge,
       }}
@@ -644,7 +644,7 @@ function ModeToggle({
           accessibilityRole="button"
           accessibilityState={{ selected: mode === m }}
           style={{
-            borderRadius: 2,
+            borderRadius: radius.sm,
             backgroundColor: mode === m ? colors.surface : "transparent",
           }}
         >
@@ -699,12 +699,12 @@ function AnchorRow({
       {anchor.image_url ? (
         <Image
           source={{ uri: anchor.image_url }}
-          style={{ width: 48, height: 48, borderRadius: 4 }}
+          style={{ width: 48, height: 48, borderRadius: radius.md }}
           resizeMode="cover"
         />
       ) : (
         <View
-          style={{ width: 48, height: 48, borderRadius: 4 }}
+          style={{ width: 48, height: 48, borderRadius: radius.md }}
           className="bg-chip-teal items-center justify-center"
         >
           <Text className="text-rust-muted text-[10px]">No photo</Text>

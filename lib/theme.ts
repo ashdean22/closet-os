@@ -103,4 +103,23 @@ export const tracking = {
   decoWide: 1.5,
 } as const;
 
+/**
+ * Corner radii. Deco is all hard edges and mitred corners, which read as severe
+ * on a phone — softening the geometry keeps the period feel in the type and the
+ * palette while making the surfaces friendly to touch.
+ *
+ * `tailwind.config.js` mirrors these: `rounded` is `md`, `rounded-sm` is `sm`,
+ * `rounded-lg` is `lg`, `rounded-full` is `pill`.
+ */
+export const radius = {
+  /** Nested inside an already-rounded container — segmented controls, chips. */
+  sm: 9,
+  /** The default: cards, buttons, inputs, thumbnails. */
+  md: 14,
+  /** Large surfaces — sheets, hero cards, modals. */
+  lg: 20,
+  /** Fully round — progress bars, dots, avatars. */
+  pill: 999,
+} as const;
+
 export type ThemeColor = keyof typeof colors;

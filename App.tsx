@@ -13,7 +13,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import { useFonts } from "expo-font";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
-import { colors, fonts, tracking } from "./lib/theme";
+import { colors, fonts, radius } from "./lib/theme";
 import AuthScreen from "./screens/AuthScreen";
 import HomeScreen from "./screens/HomeScreen";
 import ClosetScreen from "./screens/ClosetScreen";
@@ -265,7 +265,10 @@ function TabItem({
   active: boolean;
   onPress: () => void;
 }) {
-  const tint = active ? colors.rust : colors.inkFaint;
+  // Inactive tabs used to sit on inkFaint, which measures 2.4:1 against the
+  // surface — below the 4.5:1 readable minimum, and the reason people reported
+  // the row as hard to read. inkSoft is 4.9:1, rustDeep 6.2:1.
+  const tint = active ? colors.rustDeep : colors.inkSoft;
 
   return (
     <TouchableOpacity
@@ -275,19 +278,24 @@ function TabItem({
       {/* Brass cap over the active tab; a transparent twin keeps rows aligned. */}
       <View
         style={{
-          height: 2,
-          width: 22,
-          marginBottom: 6,
+          height: 3,
+          width: 24,
+          marginBottom: 5,
+          borderRadius: radius.pill,
           backgroundColor: active ? colors.brass : "transparent",
         }}
       />
-      <Text style={{ fontSize: 20, lineHeight: 24, color: tint }}>{glyph}</Text>
+      <Text style={{ fontSize: 22, lineHeight: 26, color: tint }}>{glyph}</Text>
+      {/* Deliberately NOT fonts.deco. Limelight is a display face — at 9px with
+          Deco tracking the labels were decorative rather than readable. The
+          system sans carries the same uppercase Deco rhythm at a size people
+          can actually parse, and lets the display face stay special. */}
       <Text
         style={{
-          fontFamily: fonts.deco,
-          fontSize: 9,
-          letterSpacing: tracking.deco,
-          marginTop: 3,
+          fontSize: 11,
+          fontWeight: "600",
+          letterSpacing: 0.8,
+          marginTop: 4,
           color: tint,
         }}
       >
