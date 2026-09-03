@@ -18,7 +18,12 @@ import ErrorBoundary from "../components/ErrorBoundary";
 import ImageZoomModal from "../components/ImageZoomModal";
 import ItemPickerModal, { type PickableItem } from "../components/ItemPickerModal";
 import SavedOutfitsList from "../components/SavedOutfitsList";
-import { saveOutfit } from "../lib/savedOutfits";
+import {
+  DuplicateOutfitError,
+  loadSavedSignatures,
+  outfitKey,
+  saveOutfit,
+} from "../lib/savedOutfits";
 import { hasSeen, markSeen } from "../lib/onboarding";
 import { supabase } from "../lib/supabase";
 import { invokeFunction } from "../lib/invokeFunction";
@@ -45,6 +50,8 @@ type OutfitPiece = {
   reason: string;
   item: ItemDetail | null;
   is_anchor: boolean;
+  /** Carried over from the previous look during a laundry swap. */
+  is_kept: boolean;
 };
 
 type MissingDetail = {
@@ -70,13 +77,48 @@ type OutfitResult = {
    * different words.
    */
   message: string;
+  /**
+   * Machine-readable counterpart to `message`. The server refuses some
+   * requests before spending anything on them — an empty closet, a wardrobe
+   * with no trousers, a query asking what to wear on the moon — and each
+   * refusal needs a different thing offered back to the user. Null when the
+   * response carried looks, or came from a function older than this client.
+   */
+  reason: BlockReason | null;
+  /** For `implausible_request`: the same idea, rephrased so it would work. */
+  suggestion: string;
+  /** For the closet-shortfall reasons: which slots are empty. */
+  missingCategories: string[];
 };
+
+/** Every refusal the function can return. Anything else is treated as generic. */
+const BLOCK_REASONS = [
+  "empty_closet",
+  "closet_processing",
+  "insufficient_closet",
+  "needs_shoes_confirmation",
+  "implausible_request",
+  "no_candidates",
+  "no_looks",
+] as const;
+
+type BlockReason = (typeof BLOCK_REASONS)[number];
 
 type FetchOpts = {
   append?: boolean;
   silent?: boolean;
   excludeItemIds?: string[];
   variations?: number;
+  /**
+   * A laundry swap: keep these pieces of the look on screen and replace only
+   * what was dropped. The result overwrites the variation at `swapAt` rather
+   * than being appended, so the user watches one garment change instead of
+   * losing the outfit they were reading.
+   */
+  keepItemIds?: string[];
+  swapAt?: number;
+  /** Carries the user's "style it anyway" past the no-shoes check. */
+  allowMissingShoes?: boolean;
 };
 
 /**
@@ -84,15 +126,50 @@ type FetchOpts = {
  * really does finish in about a second and the rest is the model writing — and
  * a wait you can watch move is shorter than the same wait spent wondering.
  */
-function loadingStage(seconds: number): string {
+function loadingStage(seconds: number, phase: "styling" | "photos"): string {
+  if (phase === "photos") return "Loading the photos…";
   if (seconds < 2) return "Reading your closet…";
   if (seconds < 5) return "Pairing pieces…";
   return "Writing the reasons…";
 }
 
+/**
+ * Warms the image cache so a look appears complete the instant it appears.
+ *
+ * Without this the card renders, then its photos pop in one by one over the
+ * next second or two, which reads as the app still working after it has
+ * finished. Prefetching costs a moment at the end of a ten-second wait and
+ * buys a reveal with nothing missing from it.
+ *
+ * Never blocks for long: a photo that 404s or crawls must not hold the outfit
+ * hostage, so the race resolves either way and the <Image> falls back to
+ * loading normally.
+ */
+const PRELOAD_TIMEOUT_MS = 4000;
+
+async function preloadPhotos(urls: (string | null | undefined)[]): Promise<void> {
+  const real = [...new Set(urls.filter((u): u is string => !!u))];
+  if (real.length === 0) return;
+
+  await Promise.race([
+    Promise.all(real.map((uri) => Image.prefetch(uri).catch(() => false))),
+    new Promise((resolve) => setTimeout(resolve, PRELOAD_TIMEOUT_MS)),
+  ]);
+}
+
+/** The photos a look needs before it is worth showing. */
+function photosOf(variation: Variation | undefined): (string | null)[] {
+  return (variation?.outfit ?? []).map((piece) => piece.item?.image_url ?? null);
+}
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 
-export default function OutfitScreen() {
+export default function OutfitScreen({
+  onAddItems,
+}: {
+  /** Switches to the Add Item tab — the only place a closet gets filled. */
+  onAddItems?: () => void;
+}) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   // Separate from `loading` so refreshing keeps the current look on screen
@@ -111,16 +188,35 @@ export default function OutfitScreen() {
   const [mode, setMode] = useState<"find" | "saved">("find");
   // Bumped after a save so the saved list refetches when switched to.
   const [savedRefreshKey, setSavedRefreshKey] = useState(0);
-  // Which looks in the current batch are already saved, so the button can say
-  // so instead of quietly creating duplicates.
-  const [savedIndices, setSavedIndices] = useState<Set<number>>(new Set());
+  // Every outfit this account has already saved, keyed by its set of garments.
+  // Keyed rather than indexed by position so the Save button stays honest
+  // across refreshes, swaps and searches — the same four pieces are the same
+  // outfit however the user arrived at them, which is exactly the rule the
+  // database enforces.
+  const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const [savingLook, setSavingLook] = useState(false);
   // Seconds spent waiting on the current search, so the spinner can say
   // something true about where the time is going.
   const [elapsed, setElapsed] = useState(0);
+  // "styling" is the model working; "photos" is the image cache warming after
+  // it. Two different waits, and saying which one is running stops the last
+  // second reading as a stall.
+  const [phase, setPhase] = useState<"styling" | "photos">("styling");
+  // The garment currently being swapped out, so its card can show the work
+  // happening on the piece the user actually tapped.
+  const [swappingId, setSwappingId] = useState<string | null>(null);
   // One-time hint on the first visit. Shows what a good query looks like —
   // "describe the day, not the clothes" is the part people get wrong.
   const [showCoach, setShowCoach] = useState(false);
+
+  // Pieces the user has marked unavailable this session ("that's in the
+  // laundry"). Held in a ref, not state: nothing renders from it directly, and
+  // a swap needs the value it just added on the very next line rather than
+  // after a re-render.
+  const unavailable = useRef<Set<string>>(new Set());
+  // Set once the user has been warned they own no shoes and chosen to go on.
+  // Also a ref — asking again on every search would be nagging, not consent.
+  const shoelessConfirmed = useRef(false);
 
   // Bumped on every fresh search. A background prefetch or a double-tapped
   // Find that lands after a newer search started must not merge into it.
@@ -154,6 +250,22 @@ export default function OutfitScreen() {
     markSeen("outfitCoach");
   }, []);
 
+  // Refetched whenever the saved list changes so the Save button reflects
+  // deletions too — un-saving a look must make it saveable again.
+  useEffect(() => {
+    let active = true;
+    loadSavedSignatures()
+      .then((keys) => {
+        if (active) setSavedKeys(keys);
+      })
+      // A failure here only costs the button its head start: the database
+      // still refuses a duplicate, so this is not worth an error state.
+      .catch((err) => console.warn("[outfit] saved signatures:", err));
+    return () => {
+      active = false;
+    };
+  }, [savedRefreshKey]);
+
   const canSearch = query.trim().length > 0 || anchor !== null;
 
   /**
@@ -174,20 +286,30 @@ export default function OutfitScreen() {
       silent = false,
       excludeItemIds = [],
       variations = 1,
+      keepItemIds = [],
+      swapAt,
+      allowMissingShoes,
     }: FetchOpts = {}) => {
-      // A fresh search invalidates everything in flight; an append inherits the
-      // generation of the search it belongs to.
-      const gen = append ? searchGen.current : ++searchGen.current;
+      // Three shapes of request, and they differ in what they do to the screen
+      // rather than in what they ask the server:
+      //   fresh  — clears everything and starts over
+      //   append — adds looks to the batch behind the current one
+      //   swap   — replaces one look in place, keeping the user's position
+      const isSwap = typeof swapAt === "number";
+
+      // A fresh search invalidates everything in flight; an append or a swap
+      // inherits the generation of the search it belongs to.
+      const gen = append || isSwap ? searchGen.current : ++searchGen.current;
       const stale = () => searchGen.current !== gen || !mounted.current;
 
-      if (!append) {
+      if (!append && !isSwap) {
         Keyboard.dismiss();
         setLoading(true);
+        setPhase("styling");
         setElapsed(0);
         setResult(null);
         setIndex(0);
-        setSavedIndices(new Set());
-      } else if (!silent) {
+      } else if (!silent && !isSwap) {
         setRefreshing(true);
       }
       if (!silent) setError(null);
@@ -198,7 +320,17 @@ export default function OutfitScreen() {
             body: {
               query: query.trim(),
               anchor_item_id: anchor?.id ?? null,
-              exclude_item_ids: exclude,
+              // Anything the user has put in the laundry stays out for the
+              // rest of the session — being offered the same dirty shirt on
+              // the next refresh is the bug this is here to prevent.
+              exclude_item_ids: [
+                ...new Set([...exclude, ...unavailable.current]),
+              ],
+              keep_item_ids: keepItemIds,
+              allow_missing_shoes: allowMissingShoes ?? shoelessConfirmed.current,
+              // Tells the function this build can show a refusal and offer a
+              // way past it, so it is safe to ask rather than assume.
+              supports_blocking: true,
               variations,
             },
           });
@@ -235,6 +367,24 @@ export default function OutfitScreen() {
           throw new Error(serverError);
         }
 
+        // A refusal the server reached before spending anything — an empty
+        // closet, no trousers, a request for moon boots. It carries no looks
+        // by definition, so none of the retry-and-merge logic below applies.
+        if (normalized.reason) {
+          if (stale()) return;
+          // On a swap or an append the outfit already on screen is still
+          // perfectly good; replacing it with a notice would punish the user
+          // for asking a follow-up question.
+          if (append || isSwap) {
+            console.warn("[find-outfit] blocked mid-batch:", normalized.reason);
+            if (!silent) setError(normalized.message);
+            return;
+          }
+          setResult(normalized);
+          setIndex(0);
+          return;
+        }
+
         // Exclusions can empty the candidate pool in a small closet. Rather
         // than dead-end the refresh, ask once more with no exclusions — a
         // repeated look beats "nothing left".
@@ -250,6 +400,36 @@ export default function OutfitScreen() {
 
         if (stale()) return;
 
+        // ── Photos before pixels ──────────────────────────────────────
+        // The look is not shown until its garments are in the image cache, so
+        // it arrives complete rather than assembling itself over the next
+        // second. Only for looks the user is about to see: a silent prefetch
+        // warms its photos too, but nobody is waiting on it, so it does not
+        // get to hold up the screen first.
+        const incoming = normalized.variations[0];
+        if (!silent && incoming) {
+          setPhase("photos");
+          await preloadPhotos(photosOf(incoming));
+          if (stale()) return;
+        }
+
+        if (isSwap) {
+          const replacement = normalized.variations[0];
+          if (!replacement) {
+            if (!silent) setError("Couldn't find a replacement for that piece.");
+            return;
+          }
+          setResult((prev) => {
+            if (!prev) return prev;
+            const next = [...prev.variations];
+            const previous = next[swapAt];
+            if (!previous) return prev;
+            next[swapAt] = mergeSwappedLook(previous, replacement);
+            return { ...prev, variations: next };
+          });
+          return;
+        }
+
         if (append) {
           setResult((prev) =>
             prev
@@ -261,7 +441,12 @@ export default function OutfitScreen() {
           // stays put — the user is still reading look one.
           if (!silent && normalized.variations.length > 0) {
             setIndex((i) => i + 1);
+          }
+          if (normalized.variations.length > 0) {
             const latest = normalized.variations[0];
+            // A prefetched look's photos are warmed in the background so that
+            // tapping Refresh is instant rather than merely fast.
+            if (silent) void preloadPhotos(photosOf(latest));
             void fetchRef.current?.({
               append: true,
               silent: true,
@@ -283,9 +468,8 @@ export default function OutfitScreen() {
           // them one after another: three take ~22s, one takes ~9s. So we ask
           // for one, put it on screen, and fetch the other two while they read
           // it. By the time anyone taps Refresh the queue is usually full.
-          const first = normalized.variations[0];
-          if (first) {
-            const exclude = first.outfit
+          if (incoming) {
+            const exclude = incoming.outfit
               .filter((piece) => !piece.is_anchor)
               .map((piece) => piece.item_id);
             void fetchRef.current?.({
@@ -307,6 +491,7 @@ export default function OutfitScreen() {
         if (mounted.current && !silent) {
           setLoading(false);
           setRefreshing(false);
+          setPhase("styling");
         }
       }
     },
@@ -362,7 +547,10 @@ export default function OutfitScreen() {
    */
   const handleSaveLook = useCallback(async () => {
     const variation = result?.variations[index];
-    if (!variation || savingLook || savedIndices.has(index)) return;
+    if (!variation || savingLook) return;
+
+    const key = outfitKey(variation.outfit.map((p) => p.item_id));
+    if (savedKeys.has(key)) return;
 
     const pieces = variation.outfit
       .filter((p) => p?.item_id)
@@ -384,10 +572,17 @@ export default function OutfitScreen() {
         pieces,
       });
       if (!mounted.current) return;
-      setSavedIndices((prev) => new Set(prev).add(index));
+      setSavedKeys((prev) => new Set(prev).add(key));
       setSavedRefreshKey((k) => k + 1);
     } catch (err) {
       if (!mounted.current) return;
+      // The database refused it because this outfit is already saved, which
+      // is the state the user was asking for. Record it and say so quietly —
+      // an error dialog would be reporting a success as a failure.
+      if (err instanceof DuplicateOutfitError) {
+        setSavedKeys((prev) => new Set(prev).add(key));
+        return;
+      }
       Alert.alert(
         "Couldn't save",
         err instanceof Error ? err.message : "Please try again.",
@@ -395,7 +590,48 @@ export default function OutfitScreen() {
     } finally {
       if (mounted.current) setSavingLook(false);
     }
-  }, [index, result, savedIndices, savingLook]);
+  }, [index, result, savedKeys, savingLook]);
+
+  /**
+   * "That one's in the laundry."
+   *
+   * Drops one garment, pins everything else in the look, and asks the stylist
+   * to refill only the slot that opened. Rebuilding the whole outfit would be
+   * the easier implementation and the wrong answer: the user liked the look,
+   * they just cannot wear one piece of it.
+   *
+   * The rejected piece stays out for the rest of the session, so it cannot
+   * come back on the next refresh.
+   */
+  const handleSwapPiece = useCallback(
+    (itemId: string) => {
+      const variation = result?.variations[index];
+      if (!variation || swappingId) return;
+
+      const keep = variation.outfit
+        .filter((piece) => piece.item_id !== itemId)
+        .map((piece) => piece.item_id);
+
+      unavailable.current.add(itemId);
+      setSwappingId(itemId);
+
+      void fetchOutfits({
+        swapAt: index,
+        keepItemIds: keep,
+        excludeItemIds: [itemId],
+        variations: 1,
+      }).finally(() => {
+        if (mounted.current) setSwappingId(null);
+      });
+    },
+    [fetchOutfits, index, result, swappingId],
+  );
+
+  /** Re-runs the search having accepted that the looks will have no shoes. */
+  const handleStyleWithoutShoes = useCallback(() => {
+    shoelessConfirmed.current = true;
+    void fetchOutfits({ allowMissingShoes: true });
+  }, [fetchOutfits]);
 
   const current = result?.variations[index] ?? null;
   const hasUnseen = result ? index < result.variations.length - 1 : false;
@@ -522,7 +758,7 @@ export default function OutfitScreen() {
               <View className="items-center py-16 gap-2">
                 <ActivityIndicator size="large" color={colors.rust} />
                 <Text className="text-ink-soft text-base font-medium mt-2">
-                  {loadingStage(elapsed)}
+                  {loadingStage(elapsed, phase)}
                 </Text>
                 <Text className="text-ink-faint text-xs">
                   {elapsed < 15
@@ -539,7 +775,7 @@ export default function OutfitScreen() {
                 <Text style={{ fontSize: 36, color: colors.brass }}>{"\u2726\uFE0E"}</Text>
                 <Text className="text-ink-soft text-base text-center">
                   Describe the occasion, weather, or vibe — or pin a piece you want
-                  to wear — and Claude will build a few looks from your closet.
+                  to wear — and the stylist will build a few looks from your closet.
                 </Text>
               </View>
             )}
@@ -553,7 +789,9 @@ export default function OutfitScreen() {
                 total={result.variations.length}
                 refreshing={refreshing}
                 hasUnseen={hasUnseen}
-                saved={savedIndices.has(index)}
+                saved={savedKeys.has(outfitKey(current.outfit.map((p) => p.item_id)))}
+                swappingId={swappingId}
+                onSwapPiece={handleSwapPiece}
                 saving={savingLook}
                 onSave={handleSaveLook}
                 onSelectIndex={setIndex}
@@ -562,23 +800,20 @@ export default function OutfitScreen() {
               />
             )}
 
-            {/* Server returned a valid response with no buildable looks. Prefer
-                its own explanation — "your closet is empty" and "nothing left
-                after those refreshes" are different problems. */}
+            {/* Server returned a valid response with no buildable looks. Each
+                cause needs a different thing offered back, so the notice
+                branches on the reason rather than printing one message for
+                every dead end. */}
             {result && !current && !loading && (
-              <View className="bg-notice-tint border border-notice-edge rounded p-4 gap-1">
-                <Text className="text-notice text-sm font-semibold">
-                  {closetIsEmpty(result.message)
-                    ? "Your closet is empty"
-                    : "No outfits to show"}
-                </Text>
-                <Text className="text-chip-brass-ink text-sm leading-5">
-                  {closetIsEmpty(result.message)
-                    ? "Add and save some items first — the AI needs photos to work with."
-                    : result.message ||
-                      "Try rephrasing your search, or add more variety to your closet."}
-                </Text>
-              </View>
+              <BlockedNotice
+                result={result}
+                onAddItems={onAddItems}
+                onStyleWithoutShoes={handleStyleWithoutShoes}
+                onUseSuggestion={(text) => {
+                  setQuery(text);
+                  inputRef.current?.focus();
+                }}
+              />
             )}
             </>
           ) : (
@@ -750,9 +985,11 @@ function OutfitResults({
   hasUnseen,
   saved,
   saving,
+  swappingId,
   onSelectIndex,
   onRefresh,
   onSave,
+  onSwapPiece,
   onZoom,
 }: {
   query: string;
@@ -763,9 +1000,11 @@ function OutfitResults({
   hasUnseen: boolean;
   saved: boolean;
   saving: boolean;
+  swappingId: string | null;
   onSelectIndex: (i: number) => void;
   onRefresh: () => void;
   onSave: () => void;
+  onSwapPiece: (itemId: string) => void;
   onZoom: (z: { uri: string; caption: string }) => void;
 }) {
   // Defensive defaults: even though normalizeOutfitResult guarantees arrays,
@@ -824,7 +1063,7 @@ function OutfitResults({
           </Text>
           <Text className="text-chip-brass-ink text-sm leading-5">
             {closetIsEmpty(rationale)
-              ? "Add and save some items first — the AI needs photos to work with."
+              ? "Add and save some items first — the stylist needs photos to work with."
               : "Try rephrasing your query, or add more variety to your closet."}
           </Text>
         </View>
@@ -834,10 +1073,24 @@ function OutfitResults({
             <OutfitCard
               key={piece?.item_id ?? i}
               piece={piece}
+              swapping={swappingId === piece?.item_id}
+              // One swap at a time: a second tap while the stylist is already
+              // refilling a slot would race two answers into the same look.
+              swapDisabled={swappingId !== null}
+              onSwap={onSwapPiece}
               onZoom={onZoom}
             />
           ))}
         </View>
+      )}
+
+      {/* Says out loud what the small "In the laundry" links are for. Without
+          a line of explanation they read as decoration and go untapped. */}
+      {outfit.length > 0 && (
+        <Text className="text-ink-faint text-xs text-center -mt-1">
+          Something dirty or not available? Tap "In the laundry" on that piece
+          and the stylist will swap it out.
+        </Text>
       )}
 
       {/* ── Save ─────────────────────────────────────────────────────────── */}
@@ -993,9 +1246,15 @@ const REASON_LINES = 3;
 
 function OutfitCard({
   piece,
+  swapping,
+  swapDisabled,
+  onSwap,
   onZoom,
 }: {
   piece: OutfitPiece;
+  swapping: boolean;
+  swapDisabled: boolean;
+  onSwap: (itemId: string) => void;
   onZoom: (z: { uri: string; caption: string }) => void;
 }) {
   // piece itself may be malformed if the response shape drifts; default it.
@@ -1071,7 +1330,7 @@ function OutfitCard({
           ) : null}
         </View>
 
-        {/* Claude's reason — tap to expand when it runs past three lines */}
+        {/* The stylist's reason — tap to expand when it runs past three lines */}
         <TouchableOpacity
           activeOpacity={clipped ? 0.6 : 1}
           onPress={() => clipped && setExpanded((e) => !e)}
@@ -1099,7 +1358,142 @@ function OutfitCard({
             </Text>
           )}
         </TouchableOpacity>
+
+        {/* ── In the laundry ───────────────────────────────────────────
+            Deliberately quiet and per-piece. The complaint it answers is
+            never "this outfit is wrong", it is "this one shirt is in the
+            wash" — so the control sits on the shirt, and the rest of the
+            look survives the tap. A pinned piece has no such control: the
+            user chose it, and swapping it out would undo the request. */}
+        {!piece?.is_anchor && piece?.item_id ? (
+          <TouchableOpacity
+            onPress={() => onSwap(piece.item_id)}
+            disabled={swapDisabled}
+            accessibilityRole="button"
+            accessibilityLabel={`Replace this ${role} — it is in the laundry`}
+            accessibilityState={{ disabled: swapDisabled, busy: swapping }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            className="flex-row items-center gap-1.5 self-start pt-1"
+          >
+            {swapping ? (
+              <>
+                <ActivityIndicator size="small" color={colors.inkSoft} />
+                <Text className="text-ink-soft text-xs font-semibold">
+                  Finding a replacement…
+                </Text>
+              </>
+            ) : (
+              <Text
+                className={`text-xs font-semibold ${
+                  swapDisabled ? "text-ink-faint" : "text-teal"
+                }`}
+              >
+                ⟳ In the laundry
+              </Text>
+            )}
+          </TouchableOpacity>
+        ) : null}
       </View>
+    </View>
+  );
+}
+
+// ── BlockedNotice ─────────────────────────────────────────────────────────────
+
+/**
+ * What the screen shows when the stylist was never run.
+ *
+ * The function refuses some requests before spending anything — an empty
+ * closet, a wardrobe with no bottoms, a query asking what to wear on the moon.
+ * Each refusal is a different problem and needs a different way out, so this
+ * branches rather than printing one apology for all of them. The prose itself
+ * comes from the server (`result.message`) so the two can never disagree; what
+ * lives here is the heading and the action.
+ */
+function BlockedNotice({
+  result,
+  onAddItems,
+  onStyleWithoutShoes,
+  onUseSuggestion,
+}: {
+  result: OutfitResult;
+  onAddItems?: () => void;
+  onStyleWithoutShoes: () => void;
+  onUseSuggestion: (text: string) => void;
+}) {
+  const { reason, message, suggestion, missingCategories } = result;
+
+  const title =
+    reason === "empty_closet"
+      ? "Your closet is empty"
+      : reason === "closet_processing"
+        ? "Still cataloguing your closet"
+        : reason === "insufficient_closet"
+          ? `You need ${missingCategories.length > 1 ? "a few more things" : "one more thing"}`
+          : reason === "needs_shoes_confirmation"
+            ? "No shoes in your closet"
+            : reason === "implausible_request"
+              ? "That one needs a spacesuit"
+              : "No outfits to show";
+
+  const body =
+    message || "Try rephrasing your search, or add more variety to your closet.";
+
+  const needsCloset = reason === "empty_closet" || reason === "insufficient_closet";
+
+  return (
+    <View className="bg-notice-tint border border-notice-edge rounded p-4 gap-2">
+      <Text className="text-notice text-sm font-semibold">{title}</Text>
+      <Text className="text-chip-brass-ink text-sm leading-5">{body}</Text>
+
+      {/* A suggestion is the rephrasing that WOULD have worked, so it goes
+          straight into the box rather than being something to retype. */}
+      {reason === "implausible_request" && suggestion ? (
+        <TouchableOpacity
+          onPress={() => onUseSuggestion(suggestion)}
+          className="self-start bg-surface border border-notice-edge rounded px-3 py-2 mt-1"
+          accessibilityRole="button"
+        >
+          <Text className="text-notice text-sm">
+            Try <Text className="font-semibold">"{suggestion}"</Text> instead
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {reason === "needs_shoes_confirmation" ? (
+        <View className="flex-row flex-wrap gap-2 mt-1">
+          <TouchableOpacity
+            onPress={onStyleWithoutShoes}
+            className="bg-rust rounded px-4 py-2.5"
+            accessibilityRole="button"
+          >
+            <Text className="text-ground text-sm font-semibold">
+              Style it anyway
+            </Text>
+          </TouchableOpacity>
+          {onAddItems ? (
+            <TouchableOpacity
+              onPress={onAddItems}
+              className="bg-surface border border-notice-edge rounded px-4 py-2.5"
+              accessibilityRole="button"
+            >
+              <Text className="text-notice text-sm font-semibold">Add shoes</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
+
+      {needsCloset && onAddItems ? (
+        <TouchableOpacity
+          onPress={onAddItems}
+          className="self-start bg-rust rounded px-4 py-2.5 mt-1"
+          accessibilityRole="button"
+        >
+          <Text className="text-ground text-sm font-semibold">
+            Add clothes to your closet
+          </Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -1134,11 +1528,49 @@ function normalizeOutfitResult(data: unknown): OutfitResult | null {
     // A variation with no pieces has nothing to render.
     .filter((v) => v.outfit.length > 0);
 
+  const rawReason = typeof d.reason === "string" ? d.reason : null;
+
   return {
     query: typeof d.query === "string" ? d.query : "",
     anchor: (d.anchor ?? null) as ItemDetail | null,
     variations,
     message: typeof d.rationale === "string" ? d.rationale : "",
+    // Only trust a reason we know how to render. An unrecognised one — from a
+    // function newer than this build — falls through to the generic notice,
+    // which still shows the server's own prose.
+    reason: BLOCK_REASONS.includes(rawReason as BlockReason)
+      ? (rawReason as BlockReason)
+      : null,
+    suggestion: typeof d.suggestion === "string" ? d.suggestion : "",
+    missingCategories: Array.isArray(d.missing_categories)
+      ? (d.missing_categories as unknown[]).map((c) => String(c ?? ""))
+      : [],
+  };
+}
+
+/**
+ * Folds a swap's answer back into the look it replaced.
+ *
+ * The server rebuilds the whole outfit around the pieces it was told to keep,
+ * and writes a placeholder reason for each of them — it has no idea what those
+ * pieces were justified with the first time round. The user does: they read it
+ * a moment ago. So the kept pieces get their original sentences back, and only
+ * the genuinely new garment arrives with new words.
+ *
+ * The name and rationale come from the replacement, because the look really
+ * has changed and describing it with the old outfit's summary would be a lie.
+ */
+function mergeSwappedLook(previous: Variation, replacement: Variation): Variation {
+  const priorReasons = new Map(
+    previous.outfit.map((piece) => [piece.item_id, piece.reason]),
+  );
+
+  return {
+    ...replacement,
+    outfit: replacement.outfit.map((piece) => {
+      const prior = priorReasons.get(piece.item_id);
+      return piece.is_kept && prior ? { ...piece, reason: prior } : piece;
+    }),
   };
 }
 
@@ -1151,6 +1583,7 @@ function normalizeVariation(v: Record<string, unknown>): Variation {
       reason: typeof p.reason === "string" ? p.reason : "",
       item: (p.item ?? null) as OutfitPiece["item"],
       is_anchor: p.is_anchor === true,
+      is_kept: p.is_kept === true,
     }));
 
   const missing = Array.isArray(v.missing)
@@ -1197,7 +1630,7 @@ function friendlyOutfitError(raw: string): string {
 
 /** True when the Edge Function returned its "no embedded items" rationale. */
 function closetIsEmpty(rationale: string): boolean {
-  return /no embedded items|add some pieces/i.test(rationale);
+  return /no embedded items|add some pieces|add some clothes first/i.test(rationale);
 }
 
 // ── Role badge colours ────────────────────────────────────────────────────────

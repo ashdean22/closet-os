@@ -34,6 +34,11 @@ type OutfitPiece = {
   reason: string;
 };
 
+/** The tag columns every candidate and pinned piece is selected with. */
+const ITEM_COLUMNS =
+  "id, image_url, color, secondary_color, category, formality, season, " +
+  "material, description";
+
 type ModelOutfit = {
   name: string;
   outfit: OutfitPiece[];
@@ -73,6 +78,16 @@ const MAX_VARIATIONS = 3;
 
 /** At most one piece per role, except accessories which may layer. */
 const MAX_PER_ROLE: Partial<Record<Role, number>> = { accessory: 2 };
+
+/**
+ * Slots the closet must be able to fill before a search is worth running.
+ *
+ * Shoes are deliberately absent. A top and a bottom are the outfit; shoes
+ * complete it. Someone who has photographed six shirts and four pairs of
+ * trousers but no footwear yet should still get styled — after being told,
+ * once, that the looks will come back barefoot.
+ */
+const REQUIRED_ROLES: Role[] = ["top", "bottom"];
 
 // ── Tool definition ───────────────────────────────────────────────────────────
 
@@ -143,6 +158,42 @@ const buildOutfitsTool: Anthropic.Tool = {
   },
 };
 
+/**
+ * The escape hatch from build_outfits.
+ *
+ * Offered as a tool rather than handled by a separate classifier call because
+ * the judgement needs the same context the styling does, and a second model
+ * round trip to screen every query would cost more latency than the rare
+ * nonsense request is worth. tool_choice "any" forces exactly one of the two.
+ */
+const flagUnwearableTool: Anthropic.Tool = {
+  name: "flag_unwearable_request",
+  description:
+    "Call this INSTEAD of build_outfits when the request asks to be dressed " +
+    "for a place or activity that ordinary clothing cannot survive — a day on " +
+    "the moon, a deep-sea dive, walking through fire. A request merely " +
+    "INSPIRED BY such a thing ('a moon-landing vibe', 'space-age silver') is " +
+    "an aesthetic and must be built normally, never flagged.",
+  input_schema: {
+    type: "object",
+    properties: {
+      note: {
+        type: "string",
+        description:
+          "One or two sentences addressed to the user, explaining plainly why " +
+          "this needs equipment rather than an outfit. Dry, never scolding.",
+      },
+      suggestion: {
+        type: "string",
+        description:
+          "The same idea rephrased as something buildable, quoted so the user " +
+          "can reuse it — e.g. 'an outfit inspired by a moon landing'.",
+      },
+    },
+    required: ["note", "suggestion"],
+  },
+};
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -158,6 +209,20 @@ Deno.serve(async (req: Request) => {
     const excludeItemIds: string[] = Array.isArray(body?.exclude_item_ids)
       ? body.exclude_item_ids.filter((id: unknown) => typeof id === "string")
       : [];
+    // Pieces of the look already on screen that the user wants to keep while
+    // one of them is swapped out ("that shirt is in the laundry"). Pinned
+    // exactly like an anchor, so the stylist only refills the slot that opened.
+    const keepItemIds: string[] = Array.isArray(body?.keep_item_ids)
+      ? body.keep_item_ids.filter((id: unknown) => typeof id === "string")
+      : [];
+    // Set once the user has been told they own no shoes and chose to go on.
+    const allowMissingShoes = body?.allow_missing_shoes === true;
+    // Whether the caller can render a refusal and offer a way past it. Only
+    // the updated client sends this. A shipped build that cannot show a
+    // "style it anyway" button must not be handed a question it has no way to
+    // answer — for those, no shoes stays what it always was: a look with no
+    // shoes in it, and an honest note in the missing list.
+    const supportsBlocking = body?.supports_blocking === true;
     // Defaults to 1, NOT 3. Clients that want variations ask for them
     // explicitly; v1.0.0 is live on the App Store and never sends this field,
     // and it only ever renders one look. Defaulting to 3 would triple those
@@ -185,9 +250,6 @@ Deno.serve(async (req: Request) => {
         400,
       );
     }
-
-    const geminiKey = Deno.env.get("GEMINI_API_KEY");
-    if (!geminiKey) throw new Error("GEMINI_API_KEY secret is not set");
 
     const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!anthropicKey) throw new Error("ANTHROPIC_API_KEY secret is not set");
@@ -223,7 +285,149 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // ── Daily cost cap — checked before the Gemini embed and Claude calls ──
+    // ── Step 0: resolve the pinned pieces ─────────────────────────
+    // Two kinds, resolved identically: the anchor is a piece the user chose to
+    // build around, and keep_item_ids are the pieces of the look on screen that
+    // survived a "that one is in the laundry" swap. Both are fixed points the
+    // stylist builds around rather than chooses.
+    //
+    // One query, explicitly scoped by user_id: an id belonging to someone
+    // else's closet must not leak its photo or tags back through this endpoint.
+    const pinnedRequestIds = [
+      ...new Set([...(anchorItemId ? [anchorItemId] : []), ...keepItemIds]),
+    ];
+
+    let anchor: RetrievedItem | null = null;
+    let kept: RetrievedItem[] = [];
+
+    if (pinnedRequestIds.length > 0) {
+      const { data: pinnedRows, error: pinnedError } = await supabase
+        .from("items")
+        .select(ITEM_COLUMNS)
+        .in("id", pinnedRequestIds)
+        .eq("user_id", userId);
+
+      if (pinnedError) {
+        throw new Error(`pinned lookup failed: ${pinnedError.message}`);
+      }
+
+      const byId = new Map(
+        (pinnedRows ?? []).map((row) => [
+          row.id as string,
+          { ...row, similarity: 1, category_rank: 0 } as RetrievedItem,
+        ]),
+      );
+
+      if (anchorItemId) {
+        const found = byId.get(anchorItemId);
+        // The anchor is the whole point of the request, so its disappearance
+        // is an error the user has to resolve.
+        if (!found) {
+          return json(
+            {
+              error: "That item is no longer in your closet.",
+              reason: "anchor_not_found",
+            },
+            404,
+          );
+        }
+        anchor = found;
+      }
+
+      // A kept piece that has since been deleted is quietly dropped instead:
+      // the stylist refills its slot, which is exactly what a swap asks for.
+      kept = keepItemIds
+        .filter((id) => id !== anchorItemId)
+        .map((id) => byId.get(id))
+        .filter((item): item is RetrievedItem => item !== undefined);
+    }
+
+    const pinned: RetrievedItem[] = anchor ? [anchor, ...kept] : kept;
+    const keptIds = new Set(kept.map((k) => k.id));
+
+    // ── Step 1: what the closet actually holds ───────────────────────
+    // Awaited up front rather than raced with the model call, because two
+    // later decisions depend on it: whether the request can be answered at all,
+    // and whether retrieval needs to embed anything. It is one indexed GROUP BY
+    // over a single user's rows — far cheaper than the Gemini round trip it
+    // goes on to save.
+    //
+    // The raw count runs alongside it to tell an empty closet apart from a
+    // closet whose photos are still being tagged: closet_categories only counts
+    // rows that already carry an embedding.
+    const [ownedResult, rawCountResult] = await Promise.all([
+      (supabase.rpc("closet_categories", {
+        filter_user_id: userId,
+      }) as unknown as PromiseLike<
+        { data: { category: string; item_count: number }[] | null }
+      >).then((r) => r, () => ({ data: null })),
+      (supabase
+        .from("items")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId) as unknown as PromiseLike<{ count: number | null }>)
+        .then((r) => r, () => ({ count: null })),
+    ]);
+
+    const owned = ownedResult.data ?? [];
+    const ownedByRole = new Map<Role, number>();
+    for (const row of owned) {
+      const role = categoryToRole(row.category);
+      ownedByRole.set(role, (ownedByRole.get(role) ?? 0) + row.item_count);
+    }
+    const ownedRoles = new Set(ownedByRole.keys());
+    const totalOwned = owned.reduce((n, row) => n + row.item_count, 0);
+    const rawItemCount = rawCountResult.count ?? 0;
+
+    /** A dress fills the top and bottom slots on its own, but never the shoes. */
+    const closetCovers = (role: Role) =>
+      ownedRoles.has(role) || (role !== "shoes" && ownedRoles.has("dress"));
+
+    // ── Step 2: refuse what the closet cannot answer ─────────────────
+    // Deliberately ahead of checkDailyLimit. Telling somebody they own no
+    // trousers costs nothing to work out, and must not spend one of their few
+    // daily searches — an empty closet would otherwise burn the whole day's
+    // allowance discovering it is empty. Nothing below this point is free.
+    if (totalOwned === 0) {
+      return rawItemCount > 0
+        ? blocked(
+            query,
+            "closet_processing",
+            "Your closet is still being catalogued — give it a moment and try " +
+              "again.",
+          )
+        : blocked(
+            query,
+            "empty_closet",
+            "Add some clothes first. The stylist needs at least a top and a " +
+              "bottom in your closet before it can put a look together.",
+            { missing_categories: REQUIRED_ROLES },
+          );
+    }
+
+    const missingRequired = REQUIRED_ROLES.filter((role) => !closetCovers(role));
+    if (missingRequired.length > 0) {
+      return blocked(
+        query,
+        "insufficient_closet",
+        `Your closet has no ${listRoles(missingRequired)} yet. Add at least one ` +
+          "of each, and the stylist can build a complete look.",
+        { missing_categories: missingRequired },
+      );
+    }
+
+    // Shoes are optional, but not silently so: the user is told once, and the
+    // client resends with allow_missing_shoes to go ahead barefoot.
+    if (!closetCovers("shoes") && !allowMissingShoes && supportsBlocking) {
+      return blocked(
+        query,
+        "needs_shoes_confirmation",
+        "You have no shoes in your closet. The stylist can still build the " +
+          "rest of the look — tops and bottoms are all it really needs.",
+        { missing_categories: ["shoes"] },
+      );
+    }
+
+    // ── Step 3: daily cost cap ──────────────────────────────
     // Still one increment per call regardless of how many variations come back,
     // because the cost driver is the round-trip, not the outfit count.
     const usage = await checkDailyLimit(supabase, userId, "outfit", DAILY_OUTFIT_LIMIT);
@@ -231,106 +435,102 @@ Deno.serve(async (req: Request) => {
       return json(usage.body, usage.status);
     }
 
-    // ── Step 0: resolve the anchor item, if one was pinned ────────────────
-    // Explicitly scoped by user_id: an anchor id belonging to someone else's
-    // closet must not leak its photo or tags back through this endpoint.
-    let anchor: RetrievedItem | null = null;
-    if (anchorItemId) {
-      const { data: anchorRow, error: anchorError } = await supabase
-        .from("items")
-        .select(
-          "id, image_url, color, secondary_color, category, formality, season, " +
-            "material, description",
-        )
-        .eq("id", anchorItemId)
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      if (anchorError) {
-        throw new Error(`anchor lookup failed: ${anchorError.message}`);
-      }
-      if (!anchorRow) {
-        return json(
-          {
-            error: "That item is no longer in your closet.",
-            reason: "anchor_not_found",
-          },
-          404,
-        );
-      }
-      anchor = { ...anchorRow, similarity: 1, category_rank: 0 } as RetrievedItem;
-    }
-
-    // ── Step 1: embed the search text ─────────────────────────────────────
-    // Uses the SAME model (gemini-embedding-001), outputDimensionality (768),
-    // and L2-normalisation as embed-item via the shared helper.
-    // Query and stored vectors MUST be identical in production or distances
-    // are meaningless.
+    // ── Step 4: gather candidates ───────────────────────────
+    // Two paths, chosen by closet size.
     //
-    // With an anchor we embed a composite string rather than the raw query, so
-    // retrieval pulls pieces that pair with the anchor's colour/fabric/formality
-    // instead of items that merely resemble the typed words.
-    const searchText = buildSearchText(query, anchor);
-    const queryVector = await embedText(searchText, geminiKey);
+    // Below MAX_CANDIDATES the stylist ends up seeing the entire wardrobe
+    // whichever path runs, so ranking it is work with no consequence: the
+    // embedding is a Gemini round trip whose only product is an order the
+    // prompt explicitly calls a hint. Skipping it takes a network call out of
+    // the wait and removes a third-party dependency from the common path.
+    // Nearly every real closet takes this branch.
+    //
+    // Above the cap the ranking earns its keep, because it decides which pieces
+    // get dropped. There the embed and the stratified vector search run as
+    // before.
+    const excludeIds = [
+      ...new Set([...excludeItemIds, ...pinned.map((piece) => piece.id)]),
+    ];
 
-    // ── Step 2: retrieve nearest items, stratified by category ────────────
-    // per_category guarantees the candidate set has options for every slot the
-    // closet can fill — a flat top-N could return ten shirts and no shoes,
-    // which made a complete outfit impossible regardless of prompting.
-    // High enough that it never binds for a normal wardrobe: the intent is
-    // "show everything", with MAX_CANDIDATES as the only real guard. A
-    // per-slot limit is the wrong shape for this problem because wardrobes are
-    // lopsided — capping every category at N starves the one category with
-    // real choice (27 tops here) while the shallow ones return everything they
-    // have regardless. Kept finite so a pathological closet can't stream tens
-    // of thousands of rows out of Postgres before capCandidates trims them.
-    const perCategory = 100;
-    const excludeIds = [...new Set([...excludeItemIds, ...(anchor ? [anchor.id] : [])])];
+    // A role the pinned pieces have already filled to capacity is dropped from
+    // the candidate pool entirely, so the model physically cannot pair a second
+    // top with a pinned top. Counted rather than flagged because accessories
+    // may legitimately layer two deep.
+    const pinnedRoleCounts = new Map<Role, number>();
+    for (const piece of pinned) {
+      for (const role of rolesCoveredBy(categoryToRole(piece.category))) {
+        pinnedRoleCounts.set(role, (pinnedRoleCounts.get(role) ?? 0) + 1);
+      }
+    }
+    const saturated = (role: Role) =>
+      (pinnedRoleCounts.get(role) ?? 0) >= (MAX_PER_ROLE[role] ?? 1);
 
-    const { data: items, error: rpcError } = await supabase.rpc(
-      "match_items_stratified",
-      {
-        query_embedding: `[${queryVector.join(",")}]`,
-        filter_user_id: userId,
-        per_category: perCategory,
-        exclude_ids: excludeIds,
-      },
-    ) as { data: RetrievedItem[] | null; error: { message: string } | null };
+    const ranked = totalOwned > MAX_CANDIDATES;
+    let pool: RetrievedItem[];
 
-    if (rpcError) {
-      throw new Error(`match_items_stratified RPC error: ${rpcError.message}`);
+    if (!ranked) {
+      const { data: rows, error: closetError } = await supabase
+        .from("items")
+        .select(ITEM_COLUMNS)
+        .eq("user_id", userId)
+        // Matches closet_categories, so the counts above describe the same set
+        // of rows the stylist is about to see.
+        .not("embedding", "is", null);
+
+      if (closetError) {
+        throw new Error(`closet fetch failed: ${closetError.message}`);
+      }
+
+      const dropped = new Set(excludeIds);
+      pool = (rows ?? [])
+        .filter((row) => !dropped.has(row.id as string))
+        .map((row) => ({ ...row, similarity: 0, category_rank: 0 } as RetrievedItem));
+    } else {
+      // Uses the SAME model (gemini-embedding-001), outputDimensionality (768),
+      // and L2-normalisation as embed-item via the shared helper. Query and
+      // stored vectors MUST be identical in production or distances are
+      // meaningless.
+      //
+      // With an anchor we embed a composite string rather than the raw query, so
+      // retrieval pulls pieces that pair with the anchor's colour/fabric/
+      // formality instead of items that merely resemble the typed words.
+      const geminiKey = Deno.env.get("GEMINI_API_KEY");
+      if (!geminiKey) throw new Error("GEMINI_API_KEY secret is not set");
+
+      const searchText = buildSearchText(query, anchor ?? pinned[0] ?? null);
+      const queryVector = await embedText(searchText, geminiKey);
+
+      // per_category guarantees the candidate set has options for every slot the
+      // closet can fill — a flat top-N could return ten shirts and no shoes,
+      // which made a complete outfit impossible regardless of prompting.
+      // High enough that it never binds for a normal wardrobe: the intent is
+      // "show everything", with MAX_CANDIDATES as the only real guard.
+      const { data: items, error: rpcError } = await supabase.rpc(
+        "match_items_stratified",
+        {
+          query_embedding: `[${queryVector.join(",")}]`,
+          filter_user_id: userId,
+          per_category: 100,
+          exclude_ids: excludeIds,
+        },
+      ) as { data: RetrievedItem[] | null; error: { message: string } | null };
+
+      if (rpcError) {
+        throw new Error(`match_items_stratified RPC error: ${rpcError.message}`);
+      }
+      pool = items ?? [];
     }
 
-    // Roles the anchor already fills are dropped from the candidate pool so the
-    // model physically cannot pair a second top with a pinned top.
-    const anchorCovers = anchor ? rolesCoveredBy(categoryToRole(anchor.category)) : [];
     const retrieved = capCandidates(
-      (items ?? []).filter((i) => {
-        const role = categoryToRole(i.category);
-        return !anchorCovers.includes(role);
-      }),
+      pool.filter((item) => !saturated(categoryToRole(item.category))),
     );
 
-    // What the closet contains at all — lets us distinguish "you own no shoes"
-    // from "none of your shoes suited this query" when reporting gaps.
-    //
-    // Started here but NOT awaited until after the model call: nothing in the
-    // prompt depends on it, so waiting for it in line just adds its round trip
-    // to the time the user spends staring at a spinner.
-    const ownedRowsPromise = (supabase.rpc("closet_categories", {
-      filter_user_id: userId,
-    }) as PromiseLike<{ data: { category: string; item_count: number }[] | null }>)
-      .then((r) => r, () => ({ data: null }));
-
-    if (retrieved.length === 0 && !anchor) {
-      // No model call on this path, so waiting on the categories costs nothing.
-      const { data: rows } = await ownedRowsPromise;
-      const emptyCloset = (rows ?? []).length === 0;
-      return emptyResult(
+    if (retrieved.length === 0 && pinned.length === 0) {
+      return blocked(
         query,
-        emptyCloset
-          ? "Your closet has no embedded items yet — add some pieces first."
-          : "Nothing left to pull from — try a different search or clear the refreshes.",
+        "no_candidates",
+        "Nothing left to pull from — try a different search or start a fresh " +
+          "one.",
       );
     }
 
@@ -362,16 +562,21 @@ Deno.serve(async (req: Request) => {
       season: i.season,
       material: i.material,
       description: i.description,
-      similarity: Math.round(i.similarity * 1000) / 1000,
+      // Omitted entirely on the unranked path: every score there is 0, and a
+      // column of zeroes is both misleading to the model and paid for on every
+      // request, since the candidate list is the part that cannot be cached.
+      ...(ranked ? { similarity: Math.round(i.similarity * 1000) / 1000 } : {}),
     }));
 
-    // Only ask for slots the wardrobe can actually fill. Demanding shoes from a
-    // closet with no shoes just invites the model to hallucinate one.
+    // Only ask for slots that are still open AND fillable. Demanding shoes from
+    // a closet with no shoes just invites the model to hallucinate one, and
+    // demanding a top when a pinned top is already in the look invites a second.
     const fillableCore = CORE_ROLES.filter(
       (role) =>
-        retrieved.some((i) => categoryToRole(i.category) === role) ||
-        (retrieved.some((i) => categoryToRole(i.category) === "dress") &&
-          role !== "shoes"),
+        !saturated(role) &&
+        (retrieved.some((i) => categoryToRole(i.category) === role) ||
+          (retrieved.some((i) => categoryToRole(i.category) === "dress") &&
+            role !== "shoes")),
     );
 
     const message = await anthropic.messages.create({
@@ -379,10 +584,12 @@ Deno.serve(async (req: Request) => {
       // Three looks of ~5 pieces, each with a reason sentence, needs materially
       // more room than the single-outfit version's 1024.
       max_tokens: 3072,
-      // tool_choice: { type: "tool" } forces Claude to call build_outfits,
-      // guaranteeing a parseable structured response every time.
-      tool_choice: { type: "tool", name: "build_outfits" },
-      tools: [buildOutfitsTool],
+      // "any" rather than a named tool: the model must call one of the two,
+      // which keeps the response parseable, but it chooses between styling the
+      // request and refusing it as unwearable. Naming build_outfits would have
+      // forced an outfit for a moonwalk.
+      tool_choice: { type: "any" },
+      tools: [buildOutfitsTool, flagUnwearableTool],
       // The stylist's knowledge is a separate, cached block. It is
       // byte-identical on every request, and because the render order is
       // tools -> system -> messages, this one breakpoint covers the tool
@@ -407,6 +614,7 @@ Deno.serve(async (req: Request) => {
           content: buildUserPrompt({
             query,
             anchor,
+            kept,
             itemsForPrompt,
             variations,
             fillableCore,
@@ -434,7 +642,7 @@ Deno.serve(async (req: Request) => {
       }),
     );
 
-    // tool_choice: { type: "tool" } guarantees a tool_use block, but a
+    // tool_choice: { type: "any" } guarantees a tool_use block, but a
     // max_tokens cutoff mid-tool can still yield a partial/non-tool block.
     const block = message.content.find((b) => b.type === "tool_use");
     if (!block || block.type !== "tool_use") {
@@ -445,26 +653,35 @@ Deno.serve(async (req: Request) => {
       throw new Error("The stylist returned an unexpected response.");
     }
 
+    // The stylist judged this a request for equipment rather than clothing.
+    if (block.name === flagUnwearableTool.name) {
+      const flagged = block.input as { note?: string; suggestion?: string };
+      console.log("[find-outfit] flagged as unwearable:", JSON.stringify({ query }));
+      return blocked(
+        query,
+        "implausible_request",
+        typeof flagged?.note === "string" && flagged.note.trim()
+          ? flagged.note.trim()
+          : "That asks for equipment rather than an outfit — no wardrobe covers it.",
+        {
+          suggestion:
+            typeof flagged?.suggestion === "string" ? flagged.suggestion.trim() : "",
+        },
+      );
+    }
+
     const result = block.input as ModelResult;
     const rawOutfits = Array.isArray(result?.outfits) ? result.outfits : [];
 
-    // ── Step 4: validate, pin the anchor, and report honest gaps ──────────
-    const { data: ownedRows } = await ownedRowsPromise;
-    const ownedRoles = new Set(
-      (ownedRows ?? []).map((r) => categoryToRole(r.category)),
-    );
+    // ── Step 5: validate, pin the fixed pieces, report honest gaps ────────
+    // ownedRoles and ownedByRole were computed in Step 1 and are reused here
+    // rather than refetched — the closet cannot have changed mid-request.
 
     // Retrieval diagnostics. The question this answers: when the outfits are
     // disappointing, is it the wardrobe or the search? If `shown` equals
     // `owned` for a category, the stylist saw everything available and the
     // limit is the closet. If `shown` is well below `owned`, retrieval is
-    // filtering out pieces that never got a chance, and per_category is the
-    // knob to turn.
-    const ownedByRole = new Map<string, number>();
-    for (const row of ownedRows ?? []) {
-      const role = categoryToRole(row.category);
-      ownedByRole.set(role, (ownedByRole.get(role) ?? 0) + row.item_count);
-    }
+    // filtering out pieces that never got a chance.
     const shownByRole = new Map<string, number>();
     for (const i of retrieved) {
       const role = categoryToRole(i.category);
@@ -473,18 +690,22 @@ Deno.serve(async (req: Request) => {
     console.log(
       "[find-outfit] candidates:",
       JSON.stringify({
-        per_category: perCategory,
+        ranked,
         total_shown: retrieved.length,
+        pinned: pinned.length,
         by_role: Object.fromEntries(
-          [...ownedByRole.entries()].map(([role, owned]) => [
+          [...ownedByRole.entries()].map(([role, ownedCount]) => [
             role,
-            `${shownByRole.get(role) ?? 0}/${owned}`,
+            `${shownByRole.get(role) ?? 0}/${ownedCount}`,
           ]),
         ),
       }),
     );
 
-    const itemMap = new Map(retrieved.map((i) => [i.id, i]));
+    const itemMap = new Map<string, RetrievedItem>([
+      ...retrieved.map((i) => [i.id, i] as const),
+      ...pinned.map((i) => [i.id, i] as const),
+    ]);
     const seenSignatures = new Set<string>();
     const built: unknown[] = [];
 
@@ -492,7 +713,8 @@ Deno.serve(async (req: Request) => {
       const pieces = sanitizePieces(
         resolvePromptIds(candidate?.outfit, uuidForPromptId),
         allowedIds,
-        anchor,
+        pinned,
+        anchor?.id ?? null,
       );
 
       // A look that survived sanitisation with nothing in it is not worth
@@ -519,8 +741,11 @@ Deno.serve(async (req: Request) => {
         name: typeof candidate?.name === "string" ? candidate.name : "",
         outfit: pieces.map((piece) => ({
           ...piece,
-          item: piece.item_id === anchor?.id ? anchor : itemMap.get(piece.item_id),
+          item: itemMap.get(piece.item_id) ?? null,
           is_anchor: piece.item_id === anchor?.id,
+          // Carried through so the client can restore the reason it already
+          // showed for this piece instead of the placeholder written below.
+          is_kept: keptIds.has(piece.item_id),
         })),
         rationale:
           typeof candidate?.rationale === "string"
@@ -536,8 +761,9 @@ Deno.serve(async (req: Request) => {
     }
 
     if (built.length === 0) {
-      return emptyResult(
+      return blocked(
         query,
+        "no_looks",
         "The stylist couldn't put a look together from these pieces — try " +
           "rephrasing, or add more variety to your closet.",
       );
@@ -573,19 +799,31 @@ Deno.serve(async (req: Request) => {
 function buildUserPrompt({
   query,
   anchor,
+  kept,
   itemsForPrompt,
   variations,
   fillableCore,
 }: {
   query: string;
   anchor: RetrievedItem | null;
+  kept: RetrievedItem[];
   itemsForPrompt: unknown[];
   variations: number;
   fillableCore: Role[];
 }): string {
   const lines: string[] = [];
 
-  lines.push(query ? `Query: "${query}"` : "Query: (none given — style around the pinned piece)");
+  lines.push(query ? `Query: "${query}"` : "Query: (none given — style around the pinned pieces)");
+
+  const describe = (item: RetrievedItem) => ({
+    category: item.category,
+    color: item.color,
+    secondary_color: item.secondary_color,
+    formality: item.formality,
+    season: item.season,
+    material: item.material,
+    description: item.description,
+  });
 
   if (anchor) {
     lines.push(
@@ -593,19 +831,19 @@ function buildUserPrompt({
       "PINNED PIECE — the user specifically wants to wear this, and it is " +
         "already in every outfit. Do NOT include it in your outfit arrays, and " +
         "do NOT pick anything that fills the same role. Build around it:",
-      JSON.stringify(
-        {
-          category: anchor.category,
-          color: anchor.color,
-          secondary_color: anchor.secondary_color,
-          formality: anchor.formality,
-          season: anchor.season,
-          material: anchor.material,
-          description: anchor.description,
-        },
-        null,
-        2,
-      ),
+      JSON.stringify(describe(anchor), null, 2),
+    );
+  }
+
+  if (kept.length > 0) {
+    lines.push(
+      "",
+      "ALREADY IN THE LOOK — the user is replacing one piece of an outfit they " +
+        "are already wearing in their head, and has kept these. They are " +
+        "fixed. Do NOT include them in your outfit arrays and do NOT pick " +
+        "anything that fills the same role. Choose only what is missing, and " +
+        "make it work with these:",
+      JSON.stringify(kept.map(describe), null, 2),
     );
   }
 
@@ -685,21 +923,28 @@ function resolvePromptIds(raw: unknown, uuidForPromptId: Map<string, string>): u
 function sanitizePieces(
   raw: unknown,
   allowedIds: Set<string>,
-  anchor: RetrievedItem | null,
+  pinned: RetrievedItem[],
+  anchorId: string | null,
 ): OutfitPiece[] {
   const pieces: OutfitPiece[] = [];
   const roleCounts = new Map<Role, number>();
   const usedIds = new Set<string>();
 
-  if (anchor) {
-    const role = categoryToRole(anchor.category);
+  // Pinned pieces go in first and unconditionally: they are the user's
+  // decision, not the model's, and seeding roleCounts with them is what stops
+  // the model from adding a second piece to a slot that is already filled.
+  for (const piece of pinned) {
+    const role = categoryToRole(piece.category);
     pieces.push({
-      item_id: anchor.id,
+      item_id: piece.id,
       role,
-      reason: "You picked this piece — the rest of the look is built around it.",
+      reason:
+        piece.id === anchorId
+          ? "You picked this piece — the rest of the look is built around it."
+          : "Kept from the look you were just shown.",
     });
-    roleCounts.set(role, 1);
-    usedIds.add(anchor.id);
+    roleCounts.set(role, (roleCounts.get(role) ?? 0) + 1);
+    usedIds.add(piece.id);
   }
 
   const list = Array.isArray(raw) ? raw : [];
@@ -791,8 +1036,20 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-/** Shape-compatible "nothing to show" response for old and new clients alike. */
-function emptyResult(query: string, rationale: string): Response {
+/**
+ * A 200 that carries no outfit, and says why.
+ *
+ * Status 200 rather than 4xx is deliberate back-compat: v1.0.0 is live on the
+ * App Store and renders `rationale` from a 200 while turning any non-2xx into
+ * a generic "something went wrong". So the prose has to stand on its own for
+ * old clients, and `reason` is the extra the new client branches on.
+ */
+function blocked(
+  query: string,
+  reason: string,
+  rationale: string,
+  extra: Record<string, unknown> = {},
+): Response {
   return json({
     query,
     anchor: null,
@@ -800,7 +1057,17 @@ function emptyResult(query: string, rationale: string): Response {
     outfit: [],
     rationale,
     missing: CORE_ROLES,
+    reason,
+    blocked: true,
+    ...extra,
   });
+}
+
+/** "tops and shoes" — for a sentence, not a bullet list. */
+function listRoles(roles: Role[]): string {
+  const words = roles.map((role) => (role === "bottom" ? "bottoms" : `${role}s`));
+  if (words.length <= 1) return words[0] ?? "";
+  return `${words.slice(0, -1).join(", ")} or ${words[words.length - 1]}`;
 }
 
 function json(body: unknown, status = 200): Response {

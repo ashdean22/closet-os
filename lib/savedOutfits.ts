@@ -38,6 +38,20 @@ export type SavedOutfit = {
   pieces: SavedPiece[];
 };
 
+/**
+ * Thrown when the same set of garments is already saved.
+ *
+ * A distinct type rather than a message match because the caller reacts to it
+ * very differently from a real failure: the outfit the user wanted kept IS
+ * kept, so this is a confirmation, not an error to apologise for.
+ */
+export class DuplicateOutfitError extends Error {
+  constructor() {
+    super("You've already saved this look.");
+    this.name = "DuplicateOutfitError";
+  }
+}
+
 /** Shape the save RPC expects for each piece. */
 export type PieceInput = {
   item_id: string;
@@ -79,9 +93,55 @@ export async function saveOutfit(input: {
     })),
   });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    // 23505 is unique_violation — raised by save_outfit's own check, and by
+    // the unique index behind it if two taps race.
+    if (error.code === "23505" || /already saved this outfit/i.test(error.message)) {
+      throw new DuplicateOutfitError();
+    }
+    throw new Error(error.message);
+  }
   if (!data) throw new Error("Save returned no id.");
   return data as string;
+}
+
+/**
+ * The identity of every outfit this user has already saved, as sorted
+ * item-id keys.
+ *
+ * Lets the Save button say "Already saved" before it is pressed rather than
+ * after — the database rejects a duplicate either way, but discovering that
+ * by tapping and being refused is a worse way to learn it.
+ *
+ * Deliberately not the `signature` column: that is an md5, and hashing it
+ * client-side would mean shipping a hash implementation to match Postgres
+ * byte for byte. The piece ids are small, few, and already indexed.
+ */
+export async function loadSavedSignatures(): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from("saved_outfits")
+    .select("id, pieces:saved_outfit_pieces ( item_id )");
+
+  if (error) throw new Error(error.message);
+
+  const signatures = new Set<string>();
+  for (const row of (data ?? []) as { pieces: { item_id: string | null }[] }[]) {
+    const key = outfitKey((row.pieces ?? []).map((p) => p.item_id));
+    if (key) signatures.add(key);
+  }
+  return signatures;
+}
+
+/**
+ * Stable identity for a set of garments: sorted, de-duplicated, joined.
+ *
+ * Must agree with public.outfit_signature in the migration about WHAT is
+ * hashed (distinct non-null item ids, sorted) even though it stops short of
+ * hashing. Returns "" for a set with nothing left in it, which is never a
+ * match.
+ */
+export function outfitKey(itemIds: (string | null | undefined)[]): string {
+  return [...new Set(itemIds.filter((id): id is string => !!id))].sort().join("|");
 }
 
 /** Newest first. Pieces are sorted by their saved position. */

@@ -176,7 +176,11 @@ export default function App() {
           <ClosetScreen refreshKey={closetRefreshKey} />
         </View>
         <View style={{ flex: 1, display: tab === "outfit" ? "flex" : "none" }}>
-          <OutfitScreen />
+          <OutfitScreen
+            onAddItems={() => {
+              setTab("home");
+            }}
+          />
         </View>
         <View style={{ flex: 1, display: tab === "settings" ? "flex" : "none" }}>
           <SettingsScreen email={session.user?.email ?? null} />
