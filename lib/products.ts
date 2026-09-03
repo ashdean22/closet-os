@@ -66,6 +66,21 @@ export const PRODUCTS: Product[] = [
 
 export const PRODUCT_IDS = PRODUCTS.map((p) => p.id);
 
+/**
+ * Whether this build can actually take money.
+ *
+ * False in Expo Go, and false in a binary that shipped before RevenueCat was
+ * wired up — including one that has since been handed these screens by an
+ * over-the-air update. Everywhere the paywall would appear checks this first,
+ * because offering somebody a plan the build cannot sell them is worse than
+ * not mentioning it: they tap, nothing happens, and the app looks broken.
+ *
+ * The server is told the same thing, and only meters a client against the
+ * free tier once it can honour the upgrade it would be pointing at.
+ */
+export const PURCHASES_AVAILABLE =
+  (process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? "").length > 0;
+
 export function productById(id: string): Product | undefined {
   return PRODUCTS.find((p) => p.id === id);
 }

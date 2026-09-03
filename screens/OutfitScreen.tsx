@@ -27,6 +27,7 @@ import {
 } from "../lib/savedOutfits";
 import { hasSeen, markSeen } from "../lib/onboarding";
 import { usePurchases } from "../lib/usePurchases";
+import { PURCHASES_AVAILABLE } from "../lib/products";
 import {
   FREE_STATUS,
   fetchOutfitStatus,
@@ -379,6 +380,9 @@ export default function OutfitScreen({
               // Tells the function this build can show a refusal and offer a
               // way past it, so it is safe to ask rather than assume.
               supports_blocking: true,
+              // Whether the limit can be lifted from inside this build. The
+              // server leaves a client that cannot buy on the old allowance.
+              supports_paywall: PURCHASES_AVAILABLE,
               variations,
             },
           });
@@ -402,7 +406,9 @@ export default function OutfitScreen({
             // Only a free account has something to buy. A paid account that
             // hits the abuse ceiling gets a plain message, not a sales pitch
             // for the plan it already pays for.
-            if (info.plan === "free" && !silent) setPaywallOpen(true);
+            if (info.plan === "free" && !silent && PURCHASES_AVAILABLE) {
+              setPaywallOpen(true);
+            }
             throw new Error("daily_limit");
           }
           if (detail.reason === "anchor_not_found") throw new Error("anchor_not_found");
@@ -805,7 +811,7 @@ export default function OutfitScreen({
                   one, and a budget you only learn about at zero reads as a
                   trick. Hidden entirely on a paid plan — there is no number
                   to watch, and a counter saying "unlimited" is just noise. */}
-              {!status.unlimited && (
+              {!status.unlimited && PURCHASES_AVAILABLE && (
                 <View className="flex-row items-center justify-center gap-2">
                   <Text
                     className={`text-xs ${

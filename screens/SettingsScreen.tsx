@@ -24,6 +24,7 @@ import {
   type OutfitStatus,
 } from "../lib/entitlement";
 import { usePurchases } from "../lib/usePurchases";
+import { PURCHASES_AVAILABLE } from "../lib/products";
 
 /**
  * Where Apple looks for the subscription disclosures.
@@ -163,6 +164,10 @@ export default function SettingsScreen({ email }: Props) {
         </View>
 
         {/* ── Plan ─────────────────────────────────────────────────────────── */}
+        {/* Hidden entirely in a build that cannot sell anything — a plan
+            section offering an upgrade that silently fails is worse than no
+            plan section at all. */}
+        {PURCHASES_AVAILABLE && (
         <View className="gap-2">
           <Text className="text-xs font-semibold text-ink-faint uppercase tracking-wide">
             Plan
@@ -236,6 +241,7 @@ export default function SettingsScreen({ email }: Props) {
             </Text>
           ) : null}
         </View>
+        )}
 
         {/* ── About ────────────────────────────────────────────────────────── */}
         <View className="gap-2">

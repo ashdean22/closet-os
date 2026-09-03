@@ -242,6 +242,13 @@ Deno.serve(async (req: Request) => {
     // answer — for those, no shoes stays what it always was: a look with no
     // shoes in it, and an honest note in the missing list.
     const supportsBlocking = body?.supports_blocking === true;
+    // Separate question, separate flag: supports_blocking says the client can
+    // render a refusal and offer a way past it. THIS says it can actually take
+    // the user's money. They come apart in one important case — an over-the-air
+    // update lands the new screens inside an old binary that has no StoreKit
+    // in it. Metering that client against the free tier would show it a paywall
+    // it cannot honour, so entitlements only bind once buying is possible.
+    const supportsPaywall = body?.supports_paywall === true;
     // Which budget this request spends. Never taken on trust — see
     // classifyIntent for why a claim has to be backed by the request's shape.
     const intent = classifyIntent(body?.intent, keepItemIds, excludeItemIds);
@@ -463,9 +470,10 @@ Deno.serve(async (req: Request) => {
     // calls behind a single search to make Refresh instant. Free accounts do
     // not get it, and refusing it here rather than trusting the client to stop
     // asking is what actually keeps the cost off the free tier.
-    // See LEGACY_OUTFIT_LIMIT. An old client is metered exactly the way it was
-    // before this change: one bucket, one generous ceiling, no paywall.
-    const legacy = !supportsBlocking;
+    // See LEGACY_OUTFIT_LIMIT. A client that cannot sell anything is metered
+    // exactly the way it was before this change: one bucket, one generous
+    // ceiling, no paywall.
+    const legacy = !supportsPaywall;
 
     if (intent === "prefetch" && !limits.unlimited && !legacy) {
       return blocked(query, "prefetch_unavailable", "Prefetch is a paid feature.");
