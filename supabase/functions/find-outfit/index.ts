@@ -93,6 +93,21 @@ const MAX_PER_ROLE: Partial<Record<Role, number>> = { accessory: 2 };
  */
 const REQUIRED_ROLES: Role[] = ["top", "bottom"];
 
+/**
+ * The budget for clients that predate the paywall.
+ *
+ * A build shipped before this update has no counter, no upgrade sheet, and no
+ * way to distinguish its own background prefetch from a search — so applying
+ * the two-a-day free limit to it would strand live users behind a wall with no
+ * door, after one search, with a message offering them nothing. They keep the
+ * ceiling they were built against until the update reaches them.
+ *
+ * REMOVE THIS once the update has rolled out. It is a compatibility shim, and
+ * while it exists a client can opt into the looser ceiling by omitting
+ * supports_blocking — bounded, but not free.
+ */
+const LEGACY_OUTFIT_LIMIT = 40;
+
 // ── Tool definition ───────────────────────────────────────────────────────────
 
 const buildOutfitsTool: Anthropic.Tool = {
@@ -448,15 +463,25 @@ Deno.serve(async (req: Request) => {
     // calls behind a single search to make Refresh instant. Free accounts do
     // not get it, and refusing it here rather than trusting the client to stop
     // asking is what actually keeps the cost off the free tier.
-    if (intent === "prefetch" && !limits.unlimited) {
+    // See LEGACY_OUTFIT_LIMIT. An old client is metered exactly the way it was
+    // before this change: one bucket, one generous ceiling, no paywall.
+    const legacy = !supportsBlocking;
+
+    if (intent === "prefetch" && !limits.unlimited && !legacy) {
       return blocked(query, "prefetch_unavailable", "Prefetch is a paid feature.");
     }
 
-    const action = intent === "search" ? "outfit" : "outfit_extra";
-    const budget = intent === "search" ? limits.searches : limits.extras;
+    const action = legacy ? "outfit" : intent === "search" ? "outfit" : "outfit_extra";
+    const budget = legacy
+      ? LEGACY_OUTFIT_LIMIT
+      : intent === "search"
+        ? limits.searches
+        : limits.extras;
 
     const usage = await checkDailyLimit(supabase, userId, action, budget, {
-      plan: limits.plan,
+      // Legacy clients are told "free" so they never render an upgrade
+      // prompt they do not have; they only ever show the message text.
+      plan: legacy ? "legacy" : limits.plan,
       intent,
       // Counters roll over at UTC midnight. Sent so the client can say when
       // rather than "tomorrow", which is ambiguous near the boundary.
