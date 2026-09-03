@@ -1,7 +1,11 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { embedText } from "../_shared/gemini-embed.ts";
-import { checkDailyLimit, DAILY_OUTFIT_LIMIT } from "../_shared/usage.ts";
+import {
+  checkDailyLimit,
+  getOutfitLimits,
+  type OutfitIntent,
+} from "../_shared/usage.ts";
 import { STYLIST_SYSTEM_PROMPT } from "../_shared/styling-rules.ts";
 
 const corsHeaders = {
@@ -223,6 +227,9 @@ Deno.serve(async (req: Request) => {
     // answer — for those, no shoes stays what it always was: a look with no
     // shoes in it, and an honest note in the missing list.
     const supportsBlocking = body?.supports_blocking === true;
+    // Which budget this request spends. Never taken on trust — see
+    // classifyIntent for why a claim has to be backed by the request's shape.
+    const intent = classifyIntent(body?.intent, keepItemIds, excludeItemIds);
     // Defaults to 1, NOT 3. Clients that want variations ask for them
     // explicitly; v1.0.0 is live on the App Store and never sends this field,
     // and it only ever renders one look. Defaulting to 3 would triple those
@@ -427,10 +434,40 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // ── Step 3: daily cost cap ──────────────────────────────
+    // ── Step 3: the daily budget ────────────────────────────
+    // Two budgets, and which one a request spends is the difference between
+    // "I want a different outfit" and "I want this outfit without the dirty
+    // shirt". Charging a search for the second would make the laundry swap
+    // feel like a penalty for owning laundry.
+    //
     // Still one increment per call regardless of how many variations come back,
-    // because the cost driver is the round-trip, not the outfit count.
-    const usage = await checkDailyLimit(supabase, userId, "outfit", DAILY_OUTFIT_LIMIT);
+    // because the cost driver is the round trip, not the outfit count.
+    const limits = await getOutfitLimits(supabase, userId);
+
+    // The background prefetch is a paid convenience: it doubles the model
+    // calls behind a single search to make Refresh instant. Free accounts do
+    // not get it, and refusing it here rather than trusting the client to stop
+    // asking is what actually keeps the cost off the free tier.
+    if (intent === "prefetch" && !limits.unlimited) {
+      return blocked(query, "prefetch_unavailable", "Prefetch is a paid feature.");
+    }
+
+    const action = intent === "search" ? "outfit" : "outfit_extra";
+    const budget = intent === "search" ? limits.searches : limits.extras;
+
+    const usage = await checkDailyLimit(supabase, userId, action, budget, {
+      plan: limits.plan,
+      intent,
+      // Counters roll over at UTC midnight. Sent so the client can say when
+      // rather than "tomorrow", which is ambiguous near the boundary.
+      resets_at: new Date(
+        Date.UTC(
+          new Date().getUTCFullYear(),
+          new Date().getUTCMonth(),
+          new Date().getUTCDate() + 1,
+        ),
+      ).toISOString(),
+    });
     if (!usage.ok) {
       return json(usage.body, usage.status);
     }
@@ -1061,6 +1098,32 @@ function blocked(
     blocked: true,
     ...extra,
   });
+}
+
+/**
+ * Decides which budget a request spends, from what it actually does rather
+ * than from what it says it is.
+ *
+ * The client declares an intent, and the declaration is a hint the server has
+ * every reason to distrust: "this is only a swap" is exactly what a client
+ * would say to get free outfits. So a claim only stands if the request is
+ * shaped like the thing it claims to be — a swap has to pin real pieces of a
+ * real look, a prefetch has to be excluding the look it is fetching past.
+ * Anything else is a new search and is charged as one.
+ *
+ * The pinned ids are separately checked against the caller's own closet
+ * further down, so a forged swap cannot pin garments the user does not own.
+ * That bounds the worst case to: a modified client trades its own search
+ * budget for the smaller extras budget, and still cannot exceed either.
+ */
+function classifyIntent(
+  claimed: unknown,
+  keepItemIds: string[],
+  excludeItemIds: string[],
+): OutfitIntent {
+  if (claimed === "swap" && keepItemIds.length > 0) return "swap";
+  if (claimed === "prefetch" && excludeItemIds.length > 0) return "prefetch";
+  return "search";
 }
 
 /** "tops and shoes" — for a sentence, not a bullet list. */

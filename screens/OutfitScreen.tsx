@@ -17,6 +17,7 @@ import DecoHeader from "../components/DecoHeader";
 import ErrorBoundary from "../components/ErrorBoundary";
 import ImageZoomModal from "../components/ImageZoomModal";
 import ItemPickerModal, { type PickableItem } from "../components/ItemPickerModal";
+import Paywall from "../components/Paywall";
 import SavedOutfitsList from "../components/SavedOutfitsList";
 import {
   DuplicateOutfitError,
@@ -25,6 +26,13 @@ import {
   saveOutfit,
 } from "../lib/savedOutfits";
 import { hasSeen, markSeen } from "../lib/onboarding";
+import { usePurchases } from "../lib/usePurchases";
+import {
+  FREE_STATUS,
+  fetchOutfitStatus,
+  resetLabel,
+  type OutfitStatus,
+} from "../lib/entitlement";
 import { supabase } from "../lib/supabase";
 import { invokeFunction } from "../lib/invokeFunction";
 import { colors, fonts, radius, tracking } from "../lib/theme";
@@ -205,6 +213,10 @@ export default function OutfitScreen({
   // The garment currently being swapped out, so its card can show the work
   // happening on the piece the user actually tapped.
   const [swappingId, setSwappingId] = useState<string | null>(null);
+  // The plan and today's remaining searches. Assumed free until the server
+  // says otherwise — see FREE_STATUS for why that is the safe direction.
+  const [status, setStatus] = useState<OutfitStatus>(FREE_STATUS);
+  const [paywallOpen, setPaywallOpen] = useState(false);
   // One-time hint on the first visit. Shows what a good query looks like —
   // "describe the day, not the clothes" is the part people get wrong.
   const [showCoach, setShowCoach] = useState(false);
@@ -221,6 +233,10 @@ export default function OutfitScreen({
   // Bumped on every fresh search. A background prefetch or a double-tapped
   // Find that lands after a newer search started must not merge into it.
   const searchGen = useRef(0);
+  // Kept in a ref as well so fetchOutfits can read it without listing it as a
+  // dependency — the prefetch decision needs the value, but rebuilding the
+  // callback every time the counter ticks would churn fetchRef for nothing.
+  const unlimited = useRef(false);
   // fetchOutfits calls itself to prefetch, which a useCallback can't do
   // directly — the binding doesn't exist yet inside its own body.
   const fetchRef = useRef<((opts?: FetchOpts) => Promise<void>) | null>(null);
@@ -245,6 +261,23 @@ export default function OutfitScreen({
     };
   }, []);
 
+  const refreshStatus = useCallback(async () => {
+    try {
+      const next = await fetchOutfitStatus();
+      if (!mounted.current) return;
+      setStatus(next);
+      unlimited.current = next.unlimited;
+    } catch (err) {
+      // Not worth an error state: the server enforces the limit regardless,
+      // so the only casualty is the counter being briefly out of date.
+      console.warn("[outfit] status:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStatus();
+  }, [refreshStatus]);
+
   const dismissCoach = useCallback(() => {
     setShowCoach(false);
     markSeen("outfitCoach");
@@ -265,6 +298,17 @@ export default function OutfitScreen({
       active = false;
     };
   }, [savedRefreshKey]);
+
+  // Everything to do with buying lives in one hook: the screen's job is
+  // outfits, and threading four pieces of StoreKit state through it would
+  // bury that. `onEntitled` re-reads the plan from Postgres, which is what
+  // actually lifts the limit — the purchase is only the reason it changed.
+  const { prices, purchasing, purchaseError, buy, restore } = usePurchases({
+    onEntitled: () => {
+      void refreshStatus();
+      setPaywallOpen(false);
+    },
+  });
 
   const canSearch = query.trim().length > 0 || anchor !== null;
 
@@ -327,6 +371,10 @@ export default function OutfitScreen({
                 ...new Set([...exclude, ...unavailable.current]),
               ],
               keep_item_ids: keepItemIds,
+              // Which budget this spends. The server re-derives it from the
+              // request's shape rather than believing this outright, so it is
+              // a hint, not an assertion.
+              intent: isSwap ? "swap" : silent ? "prefetch" : "search",
               allow_missing_shoes: allowMissingShoes ?? shoelessConfirmed.current,
               // Tells the function this build can show a refusal and offer a
               // way past it, so it is safe to ask rather than assume.
@@ -348,7 +396,15 @@ export default function OutfitScreen({
             detail.reason ?? "(no reason)",
             detail.message,
           );
-          if (detail.reason === "daily_limit") throw new Error("daily_limit");
+          if (detail.reason === "daily_limit") {
+            const info = (detail.body ?? {}) as Record<string, unknown>;
+            void refreshStatus();
+            // Only a free account has something to buy. A paid account that
+            // hits the abuse ceiling gets a plain message, not a sales pitch
+            // for the plan it already pays for.
+            if (info.plan === "free" && !silent) setPaywallOpen(true);
+            throw new Error("daily_limit");
+          }
           if (detail.reason === "anchor_not_found") throw new Error("anchor_not_found");
           throw new Error(detail.message);
         }
@@ -447,17 +503,22 @@ export default function OutfitScreen({
             // A prefetched look's photos are warmed in the background so that
             // tapping Refresh is instant rather than merely fast.
             if (silent) void preloadPhotos(photosOf(latest));
-            void fetchRef.current?.({
-              append: true,
-              silent: true,
-              variations: 2,
-              excludeItemIds: [
-                ...excludeItemIds,
-                ...latest.outfit
-                  .filter((piece) => !piece.is_anchor)
-                  .map((piece) => piece.item_id),
-              ],
-            });
+            // Prefetching doubles the model calls behind one search to buy an
+            // instant Refresh. That is a paid convenience; the server refuses
+            // it for free accounts, and not asking saves the round trip.
+            if (unlimited.current) {
+              void fetchRef.current?.({
+                append: true,
+                silent: true,
+                variations: 2,
+                excludeItemIds: [
+                  ...excludeItemIds,
+                  ...latest.outfit
+                    .filter((piece) => !piece.is_anchor)
+                    .map((piece) => piece.item_id),
+                ],
+              });
+            }
           }
         } else {
           setResult(normalized);
@@ -468,7 +529,7 @@ export default function OutfitScreen({
           // them one after another: three take ~22s, one takes ~9s. So we ask
           // for one, put it on screen, and fetch the other two while they read
           // it. By the time anyone taps Refresh the queue is usually full.
-          if (incoming) {
+          if (incoming && unlimited.current) {
             const exclude = incoming.outfit
               .filter((piece) => !piece.is_anchor)
               .map((piece) => piece.item_id);
@@ -493,9 +554,12 @@ export default function OutfitScreen({
           setRefreshing(false);
           setPhase("styling");
         }
+        // Swaps and prefetches spend a different budget, so only a real search
+        // moves the number the counter shows.
+        if (!silent && !isSwap) void refreshStatus();
       }
     },
-    [anchor, query],
+    [anchor, query, refreshStatus],
   );
 
   useEffect(() => {
@@ -735,6 +799,35 @@ export default function OutfitScreen({
                   {loading ? "Styling…" : "Find My Outfit"}
                 </Text>
               </TouchableOpacity>
+
+              {/* The limit, said before it is hit rather than only after.
+                  Sits under the button because that is the tap that spends
+                  one, and a budget you only learn about at zero reads as a
+                  trick. Hidden entirely on a paid plan — there is no number
+                  to watch, and a counter saying "unlimited" is just noise. */}
+              {!status.unlimited && (
+                <View className="flex-row items-center justify-center gap-2">
+                  <Text
+                    className={`text-xs ${
+                      status.left === 0 ? "text-danger" : "text-ink-faint"
+                    }`}
+                  >
+                    {status.left === 0
+                      ? `No outfit searches left today. ${resetLabel(status.resetsAt)}`
+                      : `${status.left} of ${status.limit} outfit ${
+                          status.left === 1 ? "search" : "searches"
+                        } left today`}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setPaywallOpen(true)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text className="text-rust text-xs font-semibold">
+                      Get unlimited
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
 
             {/* ── Error ──────────────────────────────────────────────────── */}
@@ -841,6 +934,18 @@ export default function OutfitScreen({
         uri={zoom?.uri ?? null}
         caption={zoom?.caption}
         onClose={() => setZoom(null)}
+      />
+
+      <Paywall
+        visible={paywallOpen}
+        prices={prices}
+        purchasing={purchasing}
+        error={purchaseError}
+        resetsAt={status.resetsAt}
+        limit={status.limit}
+        onPurchase={buy}
+        onRestore={restore}
+        onClose={() => setPaywallOpen(false)}
       />
     </ScreenWrapper>
     </ErrorBoundary>

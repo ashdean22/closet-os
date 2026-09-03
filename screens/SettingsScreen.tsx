@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -15,6 +15,25 @@ import { invokeFunction } from "../lib/invokeFunction";
 import { colors, fonts, tracking } from "../lib/theme";
 import { readFunctionError } from "../lib/functionErrors";
 import appJson from "../app.json";
+import Paywall from "../components/Paywall";
+import {
+  FREE_STATUS,
+  fetchOutfitStatus,
+  planLabel,
+  resetLabel,
+  type OutfitStatus,
+} from "../lib/entitlement";
+import { usePurchases } from "../lib/usePurchases";
+
+/**
+ * Where Apple looks for the subscription disclosures.
+ *
+ * App Review requires a paid app to show, from inside the app, what the
+ * subscription is and how to manage or cancel it, and to offer a way to
+ * restore a purchase on a new device. All three live in the Plan section
+ * below, which is why it sits above About rather than buried under it.
+ */
+const MANAGE_SUBSCRIPTION_URL = "https://apps.apple.com/account/subscriptions";
 
 const PRIVACY_POLICY_URL = "https://ashdean22.github.io/closet-os/";
 const APP_VERSION = appJson.expo.version;
@@ -26,6 +45,27 @@ type Props = {
 export default function SettingsScreen({ email }: Props) {
   const [signingOut, setSigningOut] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [status, setStatus] = useState<OutfitStatus>(FREE_STATUS);
+  const [paywallOpen, setPaywallOpen] = useState(false);
+
+  const refreshStatus = useCallback(async () => {
+    try {
+      setStatus(await fetchOutfitStatus());
+    } catch (err) {
+      console.warn("[settings] status:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStatus();
+  }, [refreshStatus]);
+
+  const { prices, purchasing, purchaseError, buy, restore } = usePurchases({
+    onEntitled: () => {
+      void refreshStatus();
+      setPaywallOpen(false);
+    },
+  });
 
   // ── sign out ───────────────────────────────────────────────────────────────
 
@@ -122,6 +162,81 @@ export default function SettingsScreen({ email }: Props) {
           </View>
         </View>
 
+        {/* ── Plan ─────────────────────────────────────────────────────────── */}
+        <View className="gap-2">
+          <Text className="text-xs font-semibold text-ink-faint uppercase tracking-wide">
+            Plan
+          </Text>
+          <View className="bg-surface border border-edge rounded overflow-hidden">
+            <View className="px-4 py-3.5 border-b border-edge">
+              <Text className="text-xs text-ink-faint mb-0.5">Current plan</Text>
+              <Text className="text-ink text-sm font-medium">
+                {planLabel(status.plan)}
+              </Text>
+              <Text className="text-ink-faint text-xs mt-1">
+                {status.unlimited
+                  ? "Unlimited outfit searches."
+                  : `${status.left} of ${status.limit} outfit searches left today. ${resetLabel(status.resetsAt)}`}
+              </Text>
+            </View>
+
+            {!status.unlimited && (
+              <TouchableOpacity
+                onPress={() => setPaywallOpen(true)}
+                className="px-4 py-3.5 border-b border-edge"
+              >
+                <Text className="text-rust text-sm font-semibold">
+                  Get unlimited searches
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Apple requires a manage/cancel route from inside the app. This
+                deep link opens the Subscriptions page of the user's Apple ID,
+                which is the only place a subscription can actually be
+                cancelled — Capsule cannot do it on their behalf. */}
+            {(status.plan === "monthly" || status.plan === "yearly") && (
+              <TouchableOpacity
+                onPress={() =>
+                  Linking.openURL(MANAGE_SUBSCRIPTION_URL).catch(() =>
+                    Alert.alert("Couldn't open link", MANAGE_SUBSCRIPTION_URL),
+                  )
+                }
+                className="px-4 py-3.5 border-b border-edge"
+              >
+                <Text className="text-ink text-sm font-medium">
+                  Manage or cancel subscription
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Also required: somebody reinstalling on a new phone needs a way
+                to get back what they already paid for. */}
+            <TouchableOpacity
+              onPress={restore}
+              disabled={purchasing !== null}
+              className="px-4 py-3.5 flex-row items-center gap-2"
+            >
+              {purchasing === "restore" && (
+                <ActivityIndicator size="small" color={colors.teal} />
+              )}
+              <Text
+                className={`text-sm font-medium ${
+                  purchasing !== null ? "text-ink-faint" : "text-ink"
+                }`}
+              >
+                Restore purchases
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {purchaseError ? (
+            <Text className="text-danger text-xs leading-5 px-1">
+              {purchaseError}
+            </Text>
+          ) : null}
+        </View>
+
         {/* ── About ────────────────────────────────────────────────────────── */}
         <View className="gap-2">
           <Text className="text-xs font-semibold text-ink-faint uppercase tracking-wide">
@@ -167,6 +282,18 @@ export default function SettingsScreen({ email }: Props) {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <Paywall
+        visible={paywallOpen}
+        prices={prices}
+        purchasing={purchasing}
+        error={purchaseError}
+        resetsAt={status.resetsAt}
+        limit={status.limit}
+        onPurchase={buy}
+        onRestore={restore}
+        onClose={() => setPaywallOpen(false)}
+      />
     </ScreenWrapper>
   );
 }
