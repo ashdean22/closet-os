@@ -48,6 +48,28 @@ export default function Paywall({
 }) {
   const busy = purchasing !== null;
 
+  /**
+   * Only offer what the store confirmed it will sell.
+   *
+   * PRODUCTS is a hardcoded list, so it goes on describing a plan that Apple
+   * has pulled, has not approved yet, or does not offer in this user's region.
+   * Showing one of those is a button that takes a tap and then apologises,
+   * which reads as a broken app rather than an unavailable plan.
+   *
+   * An empty price map means something different — the store has not answered
+   * yet, or could not be reached — and hiding every plan there would turn a
+   * slow network into an empty sheet. The full list with fallback prices is
+   * the better guess in that case.
+   */
+  const confirmed = PRODUCTS.filter((product) => prices[product.id]);
+  const plans = confirmed.length > 0 ? confirmed : PRODUCTS;
+
+  // The small print has to describe the plans actually on screen. Apple reads
+  // this paragraph, and promising auto-renewal terms beside a single one-time
+  // unlock is the kind of mismatch that gets a build sent back.
+  const hasSubscription = plans.some((product) => product.subscription);
+  const hasOneTime = plans.some((product) => !product.subscription);
+
   return (
     <Modal
       visible={visible}
@@ -108,7 +130,7 @@ export default function Paywall({
 
           {/* ── Plans ───────────────────────────────────────────────────── */}
           <View className="gap-3">
-            {PRODUCTS.map((product) => (
+            {plans.map((product) => (
               <PlanCard
                 key={product.id}
                 product={product}
@@ -136,10 +158,12 @@ export default function Paywall({
 
           {/* ── Small print ─────────────────────────────────────────────── */}
           <Text className="text-ink-faint text-xs leading-5">
-            Subscriptions renew automatically until cancelled. Manage or cancel
-            in your Apple ID settings at any time; cancelling stops the next
-            charge and keeps your access until the period you have paid for ends.
-            The lifetime unlock is a single payment with nothing to cancel.
+            {hasSubscription
+              ? "Subscriptions renew automatically until cancelled. Manage or cancel in your Apple ID settings at any time; cancelling stops the next charge and keeps your access until the period you have paid for ends. "
+              : ""}
+            {hasOneTime
+              ? "The lifetime unlock is a single payment with nothing to cancel."
+              : ""}
           </Text>
 
           <View className="flex-row justify-center gap-6 pb-4">
