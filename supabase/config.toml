@@ -411,3 +411,10 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# RevenueCat signs its webhooks with a shared secret in the Authorization
+# header, not a Supabase JWT. Leaving JWT verification on would reject every
+# renewal and cancellation at the edge, before our own check ever ran — so the
+# function does its own authentication against REVENUECAT_WEBHOOK_SECRET.
+[functions.revenuecat-webhook]
+verify_jwt = false
