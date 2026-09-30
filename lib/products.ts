@@ -22,6 +22,14 @@ export type Product = {
   /** True for auto-renewing subscriptions; false for the one-time unlock. */
   subscription: boolean;
   title: string;
+  /**
+   * How long the subscription runs, spelled out.
+   *
+   * Guideline 3.1.2(c) requires the length to appear in the purchase flow,
+   * and "Yearly" is a name rather than a duration. Empty for the one-time
+   * unlock, which has no length to state.
+   */
+  duration: string;
   /** Fallback only — prefer the store's localised price string. */
   fallbackPrice: string;
   /** The line under the price. */
@@ -38,6 +46,7 @@ export const PRODUCTS: Product[] = [
     id: `${BUNDLE}.unlimited.yearly`,
     subscription: true,
     title: "Yearly",
+    duration: "12 months",
     fallbackPrice: "$29.99",
     // 4.99 x 12 = 59.88, so the annual plan really is half price. Stated as a
     // comparison rather than a percentage because the comparison is checkable.
@@ -49,6 +58,7 @@ export const PRODUCTS: Product[] = [
     id: `${BUNDLE}.unlimited.monthly`,
     subscription: true,
     title: "Monthly",
+    duration: "1 month",
     fallbackPrice: "$4.99",
     note: "Cancel any time",
     badge: "",
@@ -58,6 +68,7 @@ export const PRODUCTS: Product[] = [
     id: `${BUNDLE}.unlimited.lifetime`,
     subscription: false,
     title: "Lifetime",
+    duration: "",
     fallbackPrice: "$49.99",
     note: "One payment, yours for good",
     badge: "",

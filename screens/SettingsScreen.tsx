@@ -17,6 +17,11 @@ import { readFunctionError } from "../lib/functionErrors";
 import appJson from "../app.json";
 import Paywall from "../components/Paywall";
 import {
+  PRIVACY_POLICY_URL,
+  TERMS_OF_USE_URL,
+  openLegalLink,
+} from "../lib/legal";
+import {
   FREE_STATUS,
   fetchOutfitStatus,
   planLabel,
@@ -36,7 +41,6 @@ import { PURCHASES_AVAILABLE } from "../lib/products";
  */
 const MANAGE_SUBSCRIPTION_URL = "https://apps.apple.com/account/subscriptions";
 
-const PRIVACY_POLICY_URL = "https://ashdean22.github.io/closet-os/";
 const APP_VERSION = appJson.expo.version;
 
 type Props = {
@@ -250,14 +254,18 @@ export default function SettingsScreen({ email }: Props) {
           </Text>
           <View className="bg-surface border border-edge rounded overflow-hidden">
             <TouchableOpacity
-              onPress={() =>
-                Linking.openURL(PRIVACY_POLICY_URL).catch(() =>
-                  Alert.alert("Couldn't open link", PRIVACY_POLICY_URL),
-                )
-              }
+              onPress={() => openLegalLink(PRIVACY_POLICY_URL)}
               className="px-4 py-3.5 border-b border-edge"
             >
               <Text className="text-ink text-sm font-medium">Privacy Policy</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => openLegalLink(TERMS_OF_USE_URL)}
+              className="px-4 py-3.5 border-b border-edge"
+            >
+              <Text className="text-ink text-sm font-medium">
+                Terms of Use (EULA)
+              </Text>
             </TouchableOpacity>
             <View className="px-4 py-3.5 flex-row justify-between items-center">
               <Text className="text-ink text-sm font-medium">Version</Text>

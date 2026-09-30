@@ -19,6 +19,11 @@ import {
 
 import { PRODUCTS, type Product } from "../lib/products";
 import { resetLabel } from "../lib/entitlement";
+import {
+  PRIVACY_POLICY_URL,
+  TERMS_OF_USE_URL,
+  openLegalLink,
+} from "../lib/legal";
 import { colors, fonts, radius, tracking } from "../lib/theme";
 
 export default function Paywall({
@@ -166,6 +171,21 @@ export default function Paywall({
               : ""}
           </Text>
 
+          {/* Guideline 3.1.2(c): both links have to be reachable from the
+              purchase flow, not only from Settings. */}
+          <View className="flex-row justify-center gap-5">
+            <TouchableOpacity onPress={() => openLegalLink(TERMS_OF_USE_URL)}>
+              <Text className="text-ink-soft text-xs underline">
+                Terms of Use (EULA)
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => openLegalLink(PRIVACY_POLICY_URL)}>
+              <Text className="text-ink-soft text-xs underline">
+                Privacy Policy
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           <View className="flex-row justify-center gap-6 pb-4">
             <TouchableOpacity onPress={onRestore} disabled={busy}>
               <Text
@@ -223,7 +243,9 @@ function PlanCard({
       onPress={onPress}
       disabled={busy}
       accessibilityRole="button"
-      accessibilityLabel={`${product.title}, ${price}. ${product.note}`}
+      accessibilityLabel={`${product.title}, ${price}. ${
+        product.duration ? `${product.duration}. ` : ""
+      }${product.note}`}
       accessibilityState={{ disabled: busy, busy: loading }}
       style={{
         borderWidth: featured ? 2 : 1,
@@ -255,7 +277,10 @@ function PlanCard({
               </View>
             ) : null}
           </View>
-          <Text className="text-ink-faint text-xs">{product.note}</Text>
+          <Text className="text-ink-faint text-xs">
+            {product.duration ? `${product.duration} · ` : ""}
+            {product.note}
+          </Text>
         </View>
 
         {loading ? (
